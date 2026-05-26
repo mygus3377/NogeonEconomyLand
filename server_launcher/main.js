@@ -634,3 +634,124 @@ ipcMain.handle('auth:auto-login', async () => {
         return { success: false };
     }
 });
+
+// IPC 11: 런처 자체 업데이트 검증 및 다운로드/재시작 핸들러
+ipcMain.handle('launcher:check-self-update', async (event) => {
+    try {
+        const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/mygus3377/NogeonEconomyLand/main";
+        const currentVersion = app.getVersion(); // package.json의 version (예: "1.0.0")
+
+        // 1. 깃허브 최신 manifest.json 수신
+        const res = await axios.get(`${GITHUB_RAW_BASE}/manifest.json?nocache=${Date.now()}`);
+        const manifest = res.data;
+        const latestVersion = manifest.launcher_version;
+        const downloadUrl = manifest.launcher_url;
+        const gdriveId = manifest.launcher_gdrive_id;
+
+        if (!latestVersion) {
+            return { updateRequired: false };
+        }
+
+        // 버전 비교 헬퍼 함수
+        const isNewerVersion = (current, latest) => {
+            const curParts = current.split('.').map(Number);
+            const latParts = latest.split('.').map(Number);
+            for (let i = 0; i < Math.max(curParts.length, latParts.length); i++) {
+                const cur = curParts[i] || 0;
+                const lat = latParts[i] || 0;
+                if (lat > cur) return true;
+                if (cur > lat) return false;
+            }
+            return false;
+        };
+
+        if (isNewerVersion(currentVersion, latestVersion)) {
+            console.log(`[Self Update] Newer launcher version detected: ${latestVersion} (Current: ${currentVersion})`);
+            event.sender.send('status:update', {
+                status: 'updating_launcher',
+                message: `[런처 패치] 런처의 새로운 버전(${latestVersion})이 발견되었습니다. 자동 업데이트를 시작합니다...`,
+                percent: 0
+            });
+
+            // 2. 새로운 실행 파일 다운로드 (구글 드라이브 ID 우선 연동, 없으면 일반 URL 연동)
+            const tempUpdatePath = path.join(minecraftDir, 'launcher_update.exe');
+            
+            if (gdriveId) {
+                console.log(`[Self Update] Downloading update from Google Drive ID: ${gdriveId}`);
+                await downloadGdriveZip(gdriveId, tempUpdatePath, (percent) => {
+                    event.sender.send('status:update', {
+                        status: 'updating_launcher',
+                        message: `[런처 패치] 최신 버전 다운로드 중... (${percent}%)`,
+                        percent
+                    });
+                });
+            } else if (downloadUrl) {
+                console.log(`[Self Update] Downloading update from direct URL: ${downloadUrl}`);
+                const response = await axios({
+                    method: 'get',
+                    url: downloadUrl,
+                    responseType: 'stream'
+                });
+
+                const totalLength = response.headers['content-length'];
+                let downloadedLength = 0;
+                const writer = fs.createWriteStream(tempUpdatePath);
+
+                await new Promise((resolve, reject) => {
+                    response.data.on('data', (chunk) => {
+                        downloadedLength += chunk.length;
+                        if (totalLength) {
+                            const percent = Math.round((downloadedLength / totalLength) * 100);
+                            event.sender.send('status:update', {
+                                status: 'updating_launcher',
+                                message: `[런처 패치] 최신 버전 다운로드 중... (${percent}%)`,
+                                percent
+                            });
+                        }
+                    });
+                    response.data.pipe(writer);
+                    writer.on('finish', () => resolve());
+                    writer.on('error', (err) => reject(err));
+                });
+            } else {
+                console.warn("[Self Update Warning] Launcher update required but no download source specified.");
+                return { updateRequired: false };
+            }
+
+            event.sender.send('status:update', {
+                status: 'updating_launcher',
+                message: '[런처 패치] 다운로드 완료. 프로그램 교체 및 재시작 작업을 실행합니다...',
+                percent: 100
+            });
+
+            // 3. 배치 파일 작성하여 런처 교체 후 자동 재시작
+            const batPath = path.join(minecraftDir, 'update.bat');
+            const batContent = `@echo off
+timeout /t 2 /nobreak > nul
+copy /y "${tempUpdatePath}" "${process.execPath}"
+start "" "${process.execPath}"
+exit
+`;
+            fs.writeFileSync(batPath, batContent, 'utf8');
+
+            // 배치 파일 실행 및 앱 즉시 종료
+            const spawn = require('child_process').spawn;
+            const child = spawn('cmd.exe', ['/c', batPath], {
+                detached: true,
+                stdio: 'ignore'
+            });
+            child.unref();
+
+            setTimeout(() => {
+                app.quit();
+            }, 500);
+
+            return { updateRequired: true };
+        }
+
+        return { updateRequired: false };
+    } catch (err) {
+        console.error("[Self Update Error]", err);
+        return { updateRequired: false, error: err.message };
+    }
+});
