@@ -302,6 +302,22 @@ ipcMain.on('game:launch', async (event, options) => {
         return;
     }
 
+    // 🖥️ 윈도우 환경인 경우, DirectX UserGpuPreferences 레지스트리에 JRE를 등록하여 외장 그래픽 카드(고성능 GPU) 사용을 강제합니다.
+    if (process.platform === 'win32' && resolvedJavaPath) {
+        const javawPath = resolvedJavaPath.replace(/java\.exe$/i, 'javaw.exe');
+        if (fs.existsSync(javawPath)) {
+            try {
+                const { exec } = require('child_process');
+                const regCmd = `reg add "HKCU\\Software\\Microsoft\\DirectX\\UserGpuPreferences" /v "${javawPath}" /t REG_SZ /d "GpuPreference=2;" /f`;
+                exec(regCmd, (err) => {
+                    if (err) console.warn("[Registry Config] Failed to force high performance GPU:", err.message);
+                });
+            } catch (regErr) {
+                console.warn("[Registry Config] Registry write failed:", regErr.message);
+            }
+        }
+    }
+
     if (!fs.existsSync(forgeInstallerPath)) {
         event.sender.send('status:update', { 
             status: 'launching', 
@@ -398,6 +414,26 @@ ipcMain.on('game:launch', async (event, options) => {
     // ☕ 로컬 포터블 JRE 17이 완비되어 있다면 MCLC에 강제 주입하여 무설정 기동!
     launchOptions.javaPath = resolvedJavaPath;
     console.log(`[Java Config] Using portable JRE 17: ${resolvedJavaPath}`);
+
+    // 🛠️ 대규모 모드팩 지형 로딩 렉(청크 로딩 랙) 방지를 위한 options.txt 내 Mipmap level 자동 최적화 (0 설정)
+    const optionsPath = path.join(minecraftDir, 'options.txt');
+    try {
+        if (fs.existsSync(optionsPath)) {
+            let optionsContent = fs.readFileSync(optionsPath, 'utf8');
+            if (optionsContent.includes('mipmapLevels:')) {
+                optionsContent = optionsContent.replace(/mipmapLevels:\d+/g, 'mipmapLevels:0');
+            } else {
+                optionsContent += '\nmipmapLevels:0\n';
+            }
+            fs.writeFileSync(optionsPath, optionsContent, 'utf8');
+            console.log("[Optimize Options] Successfully optimized mipmapLevels to 0 in options.txt");
+        } else {
+            fs.writeFileSync(optionsPath, 'mipmapLevels:0\n', 'utf8');
+            console.log("[Optimize Options] Created options.txt with mipmapLevels:0");
+        }
+    } catch (err) {
+        console.error("[Optimize Options] Failed to modify options.txt:", err.message);
+    }
 
     try {
         launcher.launch(launchOptions);
