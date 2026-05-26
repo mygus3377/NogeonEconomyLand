@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('launcherAPI', {
     launch: (options) => ipcRenderer.send('game:launch', options),
     
     // 모드팩 동기화 요청
-    sync: (fileId) => ipcRenderer.send('game:sync', fileId),
+    sync: () => ipcRenderer.send('game:sync'),
     
     // 상태 및 진행률 업데이트 구독 리스너
     onStatus: (callback) => ipcRenderer.on('status:update', (event, data) => callback(data)),

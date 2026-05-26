@@ -1,8 +1,5 @@
 // NoGeon Launcher Frontend Controller
 
-// 구글 드라이브 모드팩 zip 파일 ID (대규모 패키지 최초 설치용)
-const GOOGLE_DRIVE_FILE_ID = "1bzYDaU5vlGsY6Gdhjtv566xgLqmQZWRv";
-
 // UI 요소 캐싱
 const btnLogin = document.getElementById('btn-login');
 const btnSync = document.getElementById('btn-sync');
@@ -218,16 +215,9 @@ btnLogin.addEventListener('click', async () => {
 
 // 2. 모드 동기화 버튼 이벤트
 btnSync.addEventListener('click', () => {
-    if (GOOGLE_DRIVE_FILE_ID === "YOUR_GOOGLE_DRIVE_ZIP_FILE_ID") {
-        appendLog('[에러] 구글 드라이브 파일 ID가 지정되지 않았습니다. renderer.js 파일의 3번째 줄을 확인해 주세요.', 'error');
-        alert("구글 드라이브 파일 ID를 설정해 주세요!");
-        return;
-    }
-
     appendLog('[동기화] 구글 드라이브(최초설치) 및 깃허브(실시간패치) 하이브리드 연동 동기화를 시작합니다...', 'system');
     btnSync.disabled = true;
-    
-    window.launcherAPI.sync(GOOGLE_DRIVE_FILE_ID);
+    window.launcherAPI.sync();
 });
 
 // 3. 게임 시작 버튼 이벤트

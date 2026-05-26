@@ -108,9 +108,10 @@ ipcMain.handle('auth:login', async () => {
 });
 
 // IPC 2: 하이브리드(구글 최초설치 + 깃허브 무결성) 동기화 처리
-ipcMain.on('game:sync', async (event, fileId) => {
+ipcMain.on('game:sync', async (event) => {
     try {
         const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/mygus3377/NogeonEconomyLand/main";
+        const defaultFileId = "1_kV4TFGyr9QcNelaUtLtXci3VMznxcNf"; // 기본 구글드라이브 폴백 ID
         
         event.sender.send('status:update', { 
             status: 'syncing', 
@@ -119,7 +120,7 @@ ipcMain.on('game:sync', async (event, fileId) => {
         });
 
         // 1. 깃허브에서 실시간 manifest.json 수신하여 구글 드라이브 ID 동적 추출
-        let dynamicFileId = fileId;
+        let dynamicFileId = defaultFileId;
         try {
             const res = await axios.get(`${GITHUB_RAW_BASE}/manifest.json?nocache=${Date.now()}`);
             if (res.data && res.data.gdrive_file_id) {
