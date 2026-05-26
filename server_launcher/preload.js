@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld('launcherAPI', {
     // Microsoft 로그인 요청
     login: () => ipcRenderer.invoke('auth:login'),
     
+    // Microsoft 로그아웃 요청
+    logout: () => ipcRenderer.invoke('auth:logout'),
+    
     // 게임 시작 요청
     launch: (options) => ipcRenderer.send('game:launch', options),
     

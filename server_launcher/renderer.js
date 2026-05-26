@@ -2,6 +2,7 @@
 
 // UI 요소 캐싱
 const btnLogin = document.getElementById('btn-login');
+const btnLogout = document.getElementById('btn-logout');
 const btnSync = document.getElementById('btn-sync');
 const btnLaunch = document.getElementById('btn-launch');
 const usernameText = document.getElementById('username');
@@ -121,6 +122,7 @@ async function tryAutoLogin() {
 
         appendLog(`[자동 로그인] ${authProfile.name} 님 세션 로드에 성공했습니다.`, 'system');
         btnLogin.style.display = 'none'; // 로그인 버튼 숨김
+        btnLogout.style.display = 'block'; // 로그아웃 버튼 표시
 
         // 실시간 업데이트 존재 여부 자동 스캔 즉시 구동
         await checkUpdatesAndSetUI();
@@ -204,12 +206,50 @@ btnLogin.addEventListener('click', async () => {
 
         appendLog(`[로그인] ${authProfile.name} 님 환영합니다! 로그인이 성공적으로 완료되었습니다.`, 'system');
         btnLogin.style.display = 'none'; // 로그인 버튼 숨김
+        btnLogout.style.display = 'block'; // 로그아웃 버튼 표시
 
         // 실시간 업데이트 존재 여부 자동 스캔
         await checkUpdatesAndSetUI();
     } else {
         btnLogin.disabled = false;
         appendLog(`[에러] 로그인 실패: ${result.error}`, 'error');
+    }
+});
+
+// 1.5. Microsoft 로그아웃 버튼 이벤트
+btnLogout.addEventListener('click', async () => {
+    const confirmLogout = confirm("정말로 로그아웃 하시겠습니까?");
+    if (!confirmLogout) return;
+    
+    appendLog('[로그아웃] 로그아웃을 시도합니다...', 'system');
+    const result = await window.launcherAPI.logout();
+    
+    if (result.success) {
+        authProfile = null;
+        
+        // 로그인 권장 UI 복구
+        usernameText.textContent = "Guest Account";
+        statusBadge.textContent = "로그인 필요";
+        statusBadge.style.color = "";
+        avatar.textContent = "👤";
+        avatar.style.background = "";
+        avatar.style.color = "";
+        
+        // 버튼 상태 환원
+        btnLaunch.disabled = true;
+        btnSync.disabled = true;
+        
+        progressText.textContent = "대기 중... 마이크로소프트 로그인을 완료해 주세요.";
+        progressText.style.color = "";
+        
+        btnLogout.style.display = 'none'; // 로그아웃 버튼 숨김
+        btnLogin.style.display = 'block'; // 로그인 버튼 표시
+        btnLogin.disabled = false;
+        
+        progressBar.style.width = "0%";
+        appendLog('[로그아웃] 로그아웃이 완료되었습니다. 다시 로그인해 주세요.', 'system');
+    } else {
+        appendLog(`[에러] 로그아웃 실패: ${result.error}`, 'error');
     }
 });
 

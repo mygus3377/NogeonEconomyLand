@@ -608,6 +608,21 @@ ipcMain.handle('util:read-patch', async () => {
     }
 });
 
+// IPC 9.5: 로그아웃 처리 (세션 파일 삭제)
+ipcMain.handle('auth:logout', async () => {
+    const sessionFilePath = path.join(minecraftDir, 'auth_session.json');
+    try {
+        if (fs.existsSync(sessionFilePath)) {
+            fs.unlinkSync(sessionFilePath);
+        }
+        console.log("[Auth Session] Logged out successfully (session file deleted)");
+        return { success: true };
+    } catch (err) {
+        console.error("[Auth Session Logout Error]", err);
+        return { success: false, error: err.message };
+    }
+});
+
 // IPC 10: 로컬 세션 기반 자동 로그인 처리
 ipcMain.handle('auth:auto-login', async () => {
     const sessionFilePath = path.join(minecraftDir, 'auth_session.json');
