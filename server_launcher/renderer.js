@@ -392,6 +392,7 @@ if (btnModalCopy) {
 // 7. 패치노트 모달 제어 이벤트
 if (btnUtilPatch) {
     btnUtilPatch.addEventListener('click', () => {
+        loadRealtimePatchNote();
         patchModal.classList.add('active');
     });
 }
