@@ -1,10 +1,18 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "gdrive_file_id": "1_kV4TFGyr9QcNelaUtLtXci3VMznxcNf",
   "mods": [
     {
       "name": "nogeon-economy-land-0.1.0.jar",
-      "sha256": "30E966D10E5C8BAE4B623A3DFDDC01C9736124A94F597D775F1C1BB7D8B8C689"
+      "sha256": "A54939539554C5E5040F195B490F69C52C8F8C03749E3535DAB405ABA30F9DF1"
     }
+  ],
+  "delete": [
+    "entityculling-forge-1.8.2-mc1.20.1.jar",
+    "fabric-api-0.92.2+1.20.1.jar",
+    "koreanpatch-forge-1.8.5+mc1.20.1.jar",
+    "moreoverlays-1.22.7-mc1.20.2.jar",
+    "protection_pixel-1.1.7-forge-1.20.1.jar",
+    "CreativeCore_FORGE_v2.12.31_mc1.20.1.jar"
   ]
 }
