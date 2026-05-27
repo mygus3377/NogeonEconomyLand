@@ -242,9 +242,24 @@ ipcMain.on('game:sync', async (event) => {
 
 // IPC 3: 마인크래프트 Forge 1.20.1 실행 처리
 ipcMain.on('game:launch', async (event, options) => {
-    const { profile, maxMemory } = options;
+    let { profile, maxMemory } = options;
     
     event.sender.send('status:update', { status: 'launching', message: '마인크래프트 실행 환경 준비 중...', percent: 10 });
+
+    // 깃허브 manifest.json에서 서버 IP 및 포트 동적 수신 (하드코딩 방지 및 다이렉트 자동 접속 연계)
+    let serverHost = null;
+    let serverPort = 25565;
+    try {
+        const GITHUB_RAW_BASE = await getGithubRawBase();
+        const res = await axios.get(`${GITHUB_RAW_BASE}/manifest.json?nocache=${Date.now()}`);
+        if (res.data && res.data.server_ip) {
+            serverHost = res.data.server_ip;
+            serverPort = res.data.server_port || 25565;
+            console.log(`[Launch Config] Resolved auto-connect server: ${serverHost}:${serverPort}`);
+        }
+    } catch (err) {
+        console.warn(`[Launch Config Warning] Failed to fetch auto-connect server from GitHub: ${err.message}`);
+    }
 
     const forgeVersion = "1.20.1-47.4.10";
     const forgeInstallerPath = path.join(minecraftDir, `forge-${forgeVersion}-installer.jar`);
@@ -442,6 +457,14 @@ ipcMain.on('game:launch', async (event, options) => {
             "-XX:MaxTenuringThreshold=1"
         ]
     };
+
+    // 깃허브 manifest.json에서 서버 정보가 성공적으로 수신되었다면 다이렉트 자동 접속 주입
+    if (serverHost) {
+        launchOptions.server = {
+            host: serverHost,
+            port: serverPort
+        };
+    }
 
     // ☕ 로컬 포터블 JRE 17이 완비되어 있다면 MCLC에 강제 주입하여 무설정 기동!
     launchOptions.javaPath = resolvedJavaPath;
