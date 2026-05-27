@@ -102,25 +102,27 @@ async function downloadGdriveZip(fileId, downloadPath, onProgress) {
             }
         });
         response.data.pipe(writer);
-        writer.on('finish', () => resolve());
+        writer.on('finish', () => {
+            // 다운로드 완료 후 파일 크기 및 HTML 여부 정밀 검증
+            if (fs.existsSync(downloadPath)) {
+                const stats = fs.statSync(downloadPath);
+                const minSize = 50 * 1024 * 1024; // 최소 50MB 이상
+                if (stats.size < minSize) {
+                    let detail = "";
+                    try {
+                        const header = fs.readFileSync(downloadPath, 'utf8').substring(0, 500);
+                        if (header.includes("<!DOCTYPE html>") || header.includes("<html") || header.includes("Google Drive")) {
+                            detail = " (구글 드라이브의 바이러스 검사 경고창 또는 트래픽 차단 페이지가 수신되었습니다)";
+                        }
+                    } catch (e) {}
+                    reject(new Error(`다운로드된 파일이 비정상적으로 작습니다: 크기 ${(stats.size / 1024 / 1024).toFixed(2)}MB${detail}`));
+                    return;
+                }
+            }
+            resolve();
+        });
         writer.on('error', (err) => reject(err));
     });
-
-    // 다운로드 완료 후 파일 크기 및 HTML 여부 정밀 검증
-    if (fs.existsSync(downloadPath)) {
-        const stats = fs.statSync(downloadPath);
-        const minSize = 50 * 1024 * 1024; // 최소 50MB 이상
-        if (stats.size < minSize) {
-            let detail = "";
-            try {
-                const header = fs.readFileSync(downloadPath, 'utf8').substring(0, 500);
-                if (header.includes("<!DOCTYPE html>") || header.includes("<html") || header.includes("Google Drive")) {
-                    detail = " (구글 드라이브의 바이러스 검사 경고창 또는 트래픽 차단 페이지가 수신되었습니다)";
-                }
-            } catch (e) {}
-            throw new Error(`다운로드된 파일이 비정상적으로 작습니다: 크기 ${(stats.size / 1024 / 1024).toFixed(2)}MB${detail}`);
-        }
-    }
 }
 
 function flattenNestedFolder(targetDir) {
@@ -229,7 +231,8 @@ function extractZip(zipPath, targetDir) {
 /**
  * 깃허브 manifest.json을 연동하여 로컬 mods 폴더와 무결성 검증을 거쳐 부분 업데이트를 처리합니다.
  */
-async function syncModsFromGithub(localModsDir, onLog) {
+async function syncModsFromGithub(localModsDir, onLog, githubRawBase) {
+    const rawBase = githubRawBase || GITHUB_RAW_BASE;
     if (!fs.existsSync(localModsDir)) {
         fs.mkdirSync(localModsDir, { recursive: true });
     }
@@ -239,7 +242,7 @@ async function syncModsFromGithub(localModsDir, onLog) {
     // 1. 깃허브 최신 manifest.json 수신
     let manifest;
     try {
-        const res = await axios.get(`${GITHUB_RAW_BASE}/manifest.json?nocache=${Date.now()}`);
+        const res = await axios.get(`${rawBase}/manifest.json?nocache=${Date.now()}`);
         manifest = res.data;
     } catch (err) {
         onLog(`[무결성 검사 거부] manifest.json 로딩 실패: ${err.message}. 개별 검사를 건너뜁니다.`, 'error');
@@ -309,7 +312,7 @@ async function syncModsFromGithub(localModsDir, onLog) {
 
         if (shouldDownload) {
             onLog(`[패치 중] 초고속 다운로드 시작: ${serverMod.name}...`);
-            const fileUrl = `${GITHUB_RAW_BASE}/mods/${encodeURIComponent(serverMod.name)}`;
+            const fileUrl = `${rawBase}/mods/${encodeURIComponent(serverMod.name)}`;
             try {
                 await downloadFile(fileUrl, localPath);
                 onLog(`[패치 성공] 완료: ${serverMod.name}`);
