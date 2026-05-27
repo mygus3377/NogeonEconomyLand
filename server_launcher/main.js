@@ -764,10 +764,18 @@ ipcMain.handle('launcher:check-self-update', async (event) => {
 
             // 3. 배치 파일 작성하여 런처 교체 후 자동 재시작
             const batPath = path.join(minecraftDir, 'update.bat');
+            const winTempUpdatePath = tempUpdatePath.replace(/\//g, '\\');
+            const winExecPath = process.execPath.replace(/\//g, '\\');
             const batContent = `@echo off
-timeout /t 2 /nobreak > nul
-copy /y "${tempUpdatePath}" "${process.execPath}"
-start "" "${process.execPath}"
+timeout /t 3 /nobreak > nul
+:retry
+copy /y "${winTempUpdatePath}" "${winExecPath}"
+if errorlevel 1 (
+    echo [NoGeon Launcher] Waiting for old process to close...
+    timeout /t 1 /nobreak > nul
+    goto retry
+)
+start "" "${winExecPath}"
 exit
 `;
             fs.writeFileSync(batPath, batContent, 'utf8');
