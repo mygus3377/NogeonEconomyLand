@@ -68,6 +68,7 @@ function createWindow() {
         height: 500,
         resizable: false,
         frame: false, // 헥스테크 프리미엄 연출을 위한 타이틀바 제거
+        show: false,  // 초기 화면 깜빡임 방지용 숨김 처리
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
@@ -76,6 +77,15 @@ function createWindow() {
     });
 
     mainWindow.loadFile('index.html');
+
+    // 윈도우 렌더링 준비 완료 시 확실히 화면 전면으로 끌어올리고 포커스 부여
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show();
+        mainWindow.focus();
+        // Windows OS 창 레이어 맨 위로 강제 인양 트릭
+        mainWindow.setAlwaysOnTop(true);
+        mainWindow.setAlwaysOnTop(false);
+    });
 
     // 🛠️ 로그인 에러 디버깅을 위한 개발자 도구 자동 활성화 (테스트 후 주석 처리 완료)
     // mainWindow.webContents.openDevTools();
@@ -528,11 +538,11 @@ ipcMain.handle('util:read-log', async () => {
     }
 });
 
-// IPC 7: 런처 공장 초기화
+// IPC 7: 런처 안전 초기화 (데이터 및 세션 보존)
 ipcMain.handle('util:reset', async () => {
     try {
-        // 캐시 꼬임 방지를 위해 핵심 폴더만 골라 지우는 것이 안전함
-        const foldersToDelete = ['mods', 'config', 'kubejs', 'patchouli_books', 'local', 'datapacks', 'defaultconfigs'];
+        // 싱글 세이브 및 키설정 설정을 유지하고 꼬인 모드 파일만 리셋하기 위해 mods 폴더만 삭제
+        const foldersToDelete = ['mods'];
         
         for (const folder of foldersToDelete) {
             const targetPath = path.join(minecraftDir, folder);
@@ -547,11 +557,7 @@ ipcMain.handle('util:reset', async () => {
             fs.unlinkSync(tempZipPath);
         }
         
-        // 세션 정보 캐시도 소거 (로그아웃 효과)
-        const sessionFilePath = path.join(minecraftDir, 'auth_session.json');
-        if (fs.existsSync(sessionFilePath)) {
-            fs.unlinkSync(sessionFilePath);
-        }
+        // 중요: auth_session.json(로그인 상태)은 절대 삭제하지 않고 유지함
         
         return { success: true };
     } catch (err) {
@@ -645,7 +651,7 @@ ipcMain.handle('auth:logout', async () => {
     }
 });
 
-// IPC 10: 로컬 세션 기반 자동 로그인 처리
+// IPC 10: 로컬 세션 기반 자동 로그인 및 만료 토큰 백그라운드 자동 재로그인 처리
 ipcMain.handle('auth:auto-login', async () => {
     const sessionFilePath = path.join(minecraftDir, 'auth_session.json');
     try {
@@ -658,15 +664,31 @@ ipcMain.handle('auth:auto-login', async () => {
         
         // 세션 데이터 구조 정밀 체크 (비정상 세션 예방)
         if (!profile.name || !profile.uuid || !profile.access_token) {
-            fs.unlinkSync(sessionFilePath); // 손상된 세션은 파괴
+            if (fs.existsSync(sessionFilePath)) fs.unlinkSync(sessionFilePath); // 손상된 세션은 파괴
             return { success: false };
         }
-        
-        console.log(`[Auth Session] Auto login successful for player: ${profile.name}`);
-        return {
-            success: true,
-            profile: profile
-        };
+
+        // MSMC 백그라운드 토큰 자동 갱신 (세션 만료 자동 갱신 및 재로그인 실체화)
+        try {
+            console.log(`[Auth Session] Checking session validity and refreshing Microsoft token for player: ${profile.name}...`);
+            const refreshedProfile = await msmc.getMCLC().refresh(profile, (update) => {
+                console.log("[MSMC Auto Login Status]", update);
+            });
+            
+            // 갱신된 최신 토큰 정보를 다시 캐싱 저장
+            fs.writeFileSync(sessionFilePath, JSON.stringify(refreshedProfile, null, 2), 'utf8');
+            console.log(`[Auth Session] Auto login and token refresh successful for player: ${refreshedProfile.name}`);
+            
+            return {
+                success: true,
+                profile: refreshedProfile
+            };
+        } catch (refreshErr) {
+            console.warn(`[Auth Session Refresh Failed] Token refresh expired or failed: ${refreshErr.message}`);
+            // 세션이 완전히 만료된 경우 세션 파일을 삭제하여 재로그인을 유도
+            if (fs.existsSync(sessionFilePath)) fs.unlinkSync(sessionFilePath);
+            return { success: false, error: "Session expired. Please log in again." };
+        }
     } catch (err) {
         console.error("[Auth Session Error]", err);
         return { success: false };
@@ -799,5 +821,88 @@ exit
     } catch (err) {
         console.error("[Self Update Error]", err);
         return { updateRequired: false, error: err.message };
+    }
+});
+
+// 순수 Node.js TCP 소켓 기반 마인크래프트 서버 상태 쿼리 및 Ping 헬퍼
+const net = require('net');
+function pingMinecraftServer(host, port = 25565, timeout = 3000) {
+    return new Promise((resolve) => {
+        const socket = net.createConnection(port, host);
+        socket.setTimeout(timeout);
+        
+        let startTime = Date.now();
+        
+        socket.on('connect', () => {
+            // 마인크래프트 Handshake & Status List Request 패킷 작성
+            const packet = Buffer.concat([
+                Buffer.from([0x00]), // Packet ID
+                Buffer.from([0xf2, 0x05]), // Protocol Version (763 for 1.20.1)
+                Buffer.from([host.length]), Buffer.from(host, 'utf-8'),
+                Buffer.from([port >> 8, port & 0xFF]), // Port
+                Buffer.from([0x01]), // Next State (1 for Status)
+            ]);
+            
+            const handshakeFrame = Buffer.concat([Buffer.from([packet.length]), packet]);
+            const requestFrame = Buffer.from([0x01, 0x00]); // Length 1, ID 0
+            
+            socket.write(handshakeFrame);
+            socket.write(requestFrame);
+        });
+        
+        let responseData = Buffer.alloc(0);
+        socket.on('data', (data) => {
+            responseData = Buffer.concat([responseData, data]);
+            if (responseData.length > 5) {
+                try {
+                    const str = responseData.toString('utf-8');
+                    const jsonStart = str.indexOf('{');
+                    if (jsonStart !== -1) {
+                        const jsonStr = str.substring(jsonStart);
+                        const parsed = JSON.parse(jsonStr);
+                        socket.end();
+                        resolve({
+                            online: true,
+                            ping: Date.now() - startTime,
+                            players: parsed.players ? parsed.players.online : 0,
+                            maxPlayers: parsed.players ? parsed.players.max : 20
+                        });
+                        return;
+                    }
+                } catch (e) {
+                    // JSON 파싱 에러 발생 시 단순 연결 성공 처리로 폴백
+                }
+            }
+        });
+        
+        socket.on('timeout', () => {
+            socket.destroy();
+            resolve({ online: false, ping: 999, players: 0, maxPlayers: 0 });
+        });
+        
+        socket.on('error', () => {
+            socket.destroy();
+            resolve({ online: false, ping: 999, players: 0, maxPlayers: 0 });
+        });
+    });
+}
+
+// IPC 12: 실시간 서버 상태 및 동접자 정보 가져오기 핸들러
+ipcMain.handle('server:ping', async () => {
+    try {
+        const GITHUB_RAW_BASE = await getGithubRawBase();
+        const res = await axios.get(`${GITHUB_RAW_BASE}/manifest.json?nocache=${Date.now()}`);
+        const manifest = res.data;
+        
+        // manifest.json에 설정된 server_ip 및 server_port 사용 (없을 시 기본 로컬폴백)
+        const host = manifest.server_ip || "127.0.0.1";
+        const port = manifest.server_port || 25565;
+        
+        console.log(`[Server Status Query] Pinging Minecraft server at ${host}:${port}...`);
+        const status = await pingMinecraftServer(host, port);
+        return { success: true, ...status };
+    } catch (err) {
+        console.error("[Server Status Query Error]", err);
+        return { success: false, online: false, ping: 999, players: 0, maxPlayers: 0 };
     }
 });

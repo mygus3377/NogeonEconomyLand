@@ -1,0 +1,40 @@
+{
+  "name": "server-launcher",
+  "version": "1.0.1",
+  "description": "NoGeon Economy Land Server Dedicated Launcher",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "keywords": [
+    "minecraft",
+    "launcher",
+    "electron"
+  ],
+  "author": "Antigravity & NoGeon",
+  "license": "MIT",
+  "dependencies": {
+    "adm-zip": "^0.5.10",
+    "axios": "^1.6.8",
+    "minecraft-launcher-core": "^3.2.2",
+    "msmc": "^3.1.5"
+  },
+  "devDependencies": {
+    "electron": "^30.0.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.nogeon.serverlauncher",
+    "productName": "NoGeon Launcher",
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "icon.png"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

@@ -9,6 +9,15 @@ const usernameText = document.getElementById('username');
 const statusBadge = document.getElementById('status-badge');
 const avatar = document.getElementById('avatar');
 const ramSelect = document.getElementById('ram-select');
+// 로컬 RAM 설정 복원 및 변경 자동 저장 연동
+const savedRam = localStorage.getItem('nogeon_launcher_ram');
+if (savedRam && Array.from(ramSelect.options).some(opt => opt.value === savedRam)) {
+    ramSelect.value = savedRam;
+}
+ramSelect.addEventListener('change', () => {
+    localStorage.setItem('nogeon_launcher_ram', ramSelect.value);
+    appendLog(`[설정] RAM 할당량이 ${ramSelect.value}로 자동 저장되었습니다.`, 'info');
+});
 const consoleBox = document.getElementById('console');
 const progressBar = document.getElementById('progress-bar');
 const progressText = document.getElementById('progress-text');
@@ -20,6 +29,10 @@ const btnUtilCrash = document.getElementById('btn-util-crash');
 const btnUtilLog = document.getElementById('btn-util-log');
 const btnUtilReset = document.getElementById('btn-util-reset');
 const btnUtilRefresh = document.getElementById('btn-util-refresh');
+
+const serverStatusContainer = document.getElementById('server-status-container');
+const serverStatusDot = document.getElementById('server-status-dot');
+const serverStatusText = document.getElementById('server-status-text');
 
 const logModal = document.getElementById('log-modal');
 const btnModalCopy = document.getElementById('btn-modal-copy');
@@ -105,6 +118,33 @@ async function loadRealtimePatchNote() {
     }
 }
 
+// 🟢 실시간 서버 상태 갱신 함수
+async function updateServerStatus() {
+    try {
+        const result = await window.launcherAPI.pingServer();
+        if (result && result.success) {
+            if (result.online) {
+                serverStatusDot.className = 'status-dot online';
+                serverStatusText.className = 'status-text online';
+                serverStatusText.textContent = `온라인 (${result.players}/${result.maxPlayers}명) - ${result.ping}ms`;
+            } else {
+                serverStatusDot.className = 'status-dot offline';
+                serverStatusText.className = 'status-text offline';
+                serverStatusText.textContent = '오프라인';
+            }
+        } else {
+            serverStatusDot.className = 'status-dot offline';
+            serverStatusText.className = 'status-text offline';
+            serverStatusText.textContent = '오프라인';
+        }
+    } catch (err) {
+        console.error("[Server Status Update Failed]", err);
+        serverStatusDot.className = 'status-dot offline';
+        serverStatusText.className = 'status-text offline';
+        serverStatusText.textContent = '오프라인';
+    }
+}
+
 // 🔍 로컬 세션 파일 기반 자동 로그인 수행 함수
 async function tryAutoLogin() {
     progressText.textContent = "로컬 세션 자동 로그인 확인 중...";
@@ -136,6 +176,10 @@ async function tryAutoLogin() {
 // 앱 구동 시 실시간 공지 로드 수행 및 자동 로그인 시도
 window.addEventListener('DOMContentLoaded', async () => {
     loadRealtimePatchNote();
+    
+    // 서버 상태 핑 최초 1회 즉시 실행 및 15초 주기 폴링 예약
+    updateServerStatus();
+    setInterval(updateServerStatus, 15000);
     
     // 런처 자체 업데이트 확인
     try {
@@ -261,18 +305,61 @@ btnSync.addEventListener('click', () => {
     window.launcherAPI.sync();
 });
 
-// 3. 게임 시작 버튼 이벤트
-btnLaunch.addEventListener('click', () => {
+// 3. 게임 시작 버튼 이벤트 (비동기 로그인 검증/재로그인 자동 연동)
+btnLaunch.addEventListener('click', async () => {
     if (!authProfile) {
-        appendLog('[에러] 로그인이 만료되었거나 비활성 상태입니다.', 'error');
+        appendLog('[에러] 로그인이 만료되었거나 비활성 상태입니다. 로그인을 진행해 주세요.', 'error');
         return;
     }
 
-    appendLog('[실행] 마인크래프트 포지 1.20.1 서버 접속 환경을 구동합니다...', 'system');
     btnLaunch.disabled = true;
     btnSync.disabled = true;
+    btnUtilReset.disabled = true;
 
-    // 게임 시작 시그널 전송 (로그인 토큰 및 RAM 용량 주입)
+    appendLog('[실행 준비] 마이크로소프트 로그인 세션을 자동 검증하고 있습니다...', 'info');
+    progressText.textContent = "로그인 세션 만료 여부 확인 중...";
+
+    // 1단계: 백그라운드 자동 세션 갱신 시도 (msmc.refresh)
+    const authCheck = await window.launcherAPI.autoLogin();
+    
+    if (authCheck.success) {
+        authProfile = authCheck.profile;
+        appendLog(`[세션 확인] 로그인 세션이 유효합니다. (플레이어: ${authProfile.name})`, 'system');
+    } else {
+        // 2단계: 자동 로그인 실패 시, 자동으로 Microsoft 재인증 팝업 호출 (알아서 자동 재로그인)
+        appendLog('[세션 만료] 로그인 세션이 만료되었습니다. 안전한 기동을 위해 자동 재로그인을 진행합니다...', 'error');
+        progressText.textContent = "로그인 세션 만료! 재로그인 인증이 필요합니다...";
+        
+        const loginResult = await window.launcherAPI.login();
+        if (loginResult.success) {
+            authProfile = loginResult.profile;
+            
+            // 로그인 UI 업데이트
+            usernameText.textContent = authProfile.name;
+            statusBadge.textContent = "정품 계정 로그인 완료";
+            statusBadge.style.color = "#10faaa";
+            avatar.textContent = authProfile.name.substring(0, 2).toUpperCase();
+            avatar.style.background = "#10faaa";
+            avatar.style.color = "#040807";
+            btnLogin.style.display = 'none';
+            btnLogout.style.display = 'block';
+            
+            appendLog(`[재로그인 성공] ${authProfile.name} 님 환영합니다! 인증이 즉각 완료되었습니다.`, 'system');
+        } else {
+            // 재로그인 실패 시 중단하고 버튼 활성화 복구
+            appendLog(`[에러] 재로그인 인증 실패: ${loginResult.error}. 수동으로 로그인하신 후 다시 시도해 주세요.`, 'error');
+            progressText.textContent = "재로그인 실패. 수동 로그인을 시도해 주세요.";
+            progressText.style.color = "#ff6b6b";
+            
+            btnLaunch.disabled = false;
+            btnSync.disabled = false;
+            btnUtilReset.disabled = false;
+            return;
+        }
+    }
+
+    appendLog('[실행] 마인크래프트 포지 1.20.1 서버 접속 환경을 구동합니다...', 'system');
+    // 게임 시작 시그널 전송 (갱신 및 확인된 안전한 로그인 토큰 주입)
     window.launcherAPI.launch({
         profile: authProfile,
         maxMemory: ramSelect.value
@@ -379,16 +466,25 @@ if (btnUtilLog) {
 
 if (btnUtilReset) {
     btnUtilReset.addEventListener('click', async () => {
-        const confirmReset = confirm("⚠️ 경고: 정말로 노건 런처를 공장 초기화하시겠습니까?\n\n이 작업은 로컬 mods, config 등의 모든 마인크래프트 모드팩 파일을 삭제합니다. 런처 실행 시 최초 전체 다운로드 패키지(2.2GB)를 다시 완전히 처음부터 설치하게 됩니다.");
+        const confirmReset = confirm("⚠️ 모드 재설치: 정말로 모드 폴더를 재설치하시겠습니까?\n\n이 작업은 로컬 mods 폴더만 안전하게 비운 후 최신 모드 파일들을 서버에서 다시 깨끗하게 자동으로 다운로드합니다. 싱글 세이브 데이터(saves)와 개인 설정, 로그인 세션 등은 안전하게 보존됩니다.");
         if (confirmReset) {
-            appendLog('[초기화] 런처 공장 초기화를 진행 중...', 'system');
+            appendLog('[초기화] 기존 모드 폴더를 안전하게 삭제하고 있습니다...', 'system');
+            btnUtilReset.disabled = true;
+            btnLaunch.disabled = true;
+            btnSync.disabled = true;
+            
             const result = await window.launcherAPI.resetLauncher();
             if (result.success) {
-                alert("런처 초기화가 완료되었습니다. 프로그램이 재부팅됩니다.");
-                location.reload();
+                appendLog('[초기화 완료] 모드 폴더 삭제 완료! 최신 모드팩 다운로드를 즉시 자동으로 개시합니다.', 'system');
+                
+                // 리로드하지 않고, 백그라운드 동기화를 즉시 자동 트리거 (원터치 자동 동기화 연동)
+                window.launcherAPI.sync();
             } else {
                 appendLog(`[에러] 초기화 실패: ${result.error}`, 'error');
                 alert(`초기화 실패: ${result.error}`);
+                btnUtilReset.disabled = false;
+                btnLaunch.disabled = false;
+                btnSync.disabled = false;
             }
         }
     });
