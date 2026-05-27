@@ -1,5 +1,5 @@
 {
-  "version": "1.0.5",
+  "version": "1.0.6",
   "gdrive_file_id": "1_kV4TFGyr9QcNelaUtLtXci3VMznxcNf",
   "launcher_version": "1.0.0",
   "launcher_gdrive_id": "1MnCBPsEcjQumV5bpI_9qdkk3ACJbm0EN",
@@ -7,7 +7,11 @@
   "mods": [
     {
       "name": "nogeon-economy-land-0.1.0.jar",
-      "sha256": "db4e4e69bf36991266f033a24317dab0c68305a42eed772d4bfb4116b339678a"
+      "sha256": "3222d2fc7596787b017ac6efc1d3d0f8eebe8fd25c5ded003f1c60c121039275"
+    },
+    {
+      "name": "ftb-chunks-forge-2001.3.7.jar",
+      "sha256": "63515959a2413ad20320f04cdc780148fed7ce97dc7ec271e2cf03f9c88d2323"
     }
   ],
   "delete": [
