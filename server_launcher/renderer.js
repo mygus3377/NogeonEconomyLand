@@ -19,6 +19,7 @@ const btnUtilFolder = document.getElementById('btn-util-folder');
 const btnUtilCrash = document.getElementById('btn-util-crash');
 const btnUtilLog = document.getElementById('btn-util-log');
 const btnUtilReset = document.getElementById('btn-util-reset');
+const btnUtilRefresh = document.getElementById('btn-util-refresh');
 
 const logModal = document.getElementById('log-modal');
 const btnModalCopy = document.getElementById('btn-modal-copy');
@@ -447,6 +448,46 @@ if (patchModal) {
     patchModal.addEventListener('click', (e) => {
         if (e.target === patchModal) {
             patchModal.classList.remove('active');
+        }
+    });
+}
+
+// 8. 패치 및 업데이트 상태 실시간 새로고침 버튼 이벤트
+if (btnUtilRefresh) {
+    btnUtilRefresh.addEventListener('click', async () => {
+        appendLog('[새로고침] 깃허브에서 실시간 패치 정보 및 업데이트 상태를 새로고침합니다...', 'info');
+        btnUtilRefresh.disabled = true;
+        const originalText = btnUtilRefresh.textContent;
+        btnUtilRefresh.textContent = "⟳ 로딩 중...";
+        let shouldRestoreButton = true;
+        
+        try {
+            // 1. 런처 자체 업데이트 검증
+            const updateCheck = await window.launcherAPI.checkSelfUpdate();
+            if (updateCheck && updateCheck.updateRequired) {
+                // 새로운 버전 다운로드 및 교체/재시작 루틴이 실행 중이므로 일반 실행 흐름을 완전히 중단합니다.
+                btnLaunch.disabled = true;
+                btnSync.disabled = true;
+                btnUtilRefresh.disabled = true;
+                shouldRestoreButton = false;
+                return;
+            }
+
+            // 2. 실시간 패치노트 및 모드 대조
+            await loadRealtimePatchNote();
+            if (authProfile) {
+                await checkUpdatesAndSetUI();
+                appendLog('[새로고침 완료] 실시간 패치 정보 및 업데이트 대조 완료.', 'system');
+            } else {
+                appendLog('[새로고침 완료] 실시간 패치 정보가 새로고침되었습니다. (업데이트 대조는 로그인 완료 시 자동 수행됩니다.)', 'system');
+            }
+        } catch (err) {
+            appendLog(`[에러] 새로고침 실패: ${err.message}`, 'error');
+        } finally {
+            if (shouldRestoreButton) {
+                btnUtilRefresh.textContent = originalText;
+                btnUtilRefresh.disabled = false;
+            }
         }
     });
 }

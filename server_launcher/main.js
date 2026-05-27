@@ -10,6 +10,27 @@ const { calculateHash, downloadGdriveZip, extractZip, syncModsFromGithub } = req
 let mainWindow;
 const launcher = new Client();
 
+async function getGithubRawBase() {
+    try {
+        const res = await axios.get("https://api.github.com/repos/mygus3377/NogeonEconomyLand/commits/main", {
+            headers: {
+                'User-Agent': 'NoGeon-Launcher',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            },
+            timeout: 5000
+        });
+        if (res.data && res.data.sha) {
+            const sha = res.data.sha;
+            console.log(`[GitHub Sync] Successfully resolved latest commit SHA: ${sha}`);
+            return `https://raw.githubusercontent.com/mygus3377/NogeonEconomyLand/${sha}`;
+        }
+    } catch (err) {
+        console.warn(`[GitHub Sync] Failed to fetch latest commit SHA, falling back to main branch: ${err.message}`);
+    }
+    return "https://raw.githubusercontent.com/mygus3377/NogeonEconomyLand/main";
+}
+
 // 마인크래프트가 설치되고 동기화될 전용 루트 경로 (%APPDATA%/.nogeon_launcher)
 const minecraftDir = path.join(os.homedir(), 'AppData', 'Roaming', '.nogeon_launcher');
 const localModsPath = path.join(minecraftDir, 'mods');
@@ -110,7 +131,7 @@ ipcMain.handle('auth:login', async () => {
 // IPC 2: 하이브리드(구글 최초설치 + 깃허브 무결성) 동기화 처리
 ipcMain.on('game:sync', async (event) => {
     try {
-        const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/mygus3377/NogeonEconomyLand/main";
+        const GITHUB_RAW_BASE = await getGithubRawBase();
         const defaultFileId = "1_kV4TFGyr9QcNelaUtLtXci3VMznxcNf"; // 기본 구글드라이브 폴백 ID
         
         event.sender.send('status:update', { 
@@ -192,7 +213,7 @@ ipcMain.on('game:sync', async (event) => {
                 message: logMessage,
                 percent: logType === 'system' ? 100 : 95
             });
-        });
+        }, GITHUB_RAW_BASE);
 
         event.sender.send('status:update', { 
             status: 'ready', 
@@ -541,7 +562,7 @@ ipcMain.handle('util:reset', async () => {
 // IPC 8: 실시간 모드 해시 자동 업데이트 감지 핸들러
 ipcMain.handle('game:check-update', async () => {
     try {
-        const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/mygus3377/NogeonEconomyLand/main";
+        const GITHUB_RAW_BASE = await getGithubRawBase();
         
         // 1. 깃허브 최신 manifest.json 수신
         const res = await axios.get(`${GITHUB_RAW_BASE}/manifest.json?nocache=${Date.now()}`);
@@ -599,7 +620,8 @@ ipcMain.handle('game:check-update', async () => {
 // IPC 9: 깃허브 최신 patch.txt 네이티브 수신 채널 (CORS/CSP 방지 완벽 라우팅)
 ipcMain.handle('util:read-patch', async () => {
     try {
-        const patchUrl = "https://raw.githubusercontent.com/mygus3377/NogeonEconomyLand/main/patch.txt";
+        const GITHUB_RAW_BASE = await getGithubRawBase();
+        const patchUrl = `${GITHUB_RAW_BASE}/patch.txt`;
         const response = await axios.get(`${patchUrl}?nocache=${Date.now()}`);
         return { success: true, content: response.data };
     } catch (err) {
@@ -654,7 +676,7 @@ ipcMain.handle('auth:auto-login', async () => {
 // IPC 11: 런처 자체 업데이트 검증 및 다운로드/재시작 핸들러
 ipcMain.handle('launcher:check-self-update', async (event) => {
     try {
-        const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/mygus3377/NogeonEconomyLand/main";
+        const GITHUB_RAW_BASE = await getGithubRawBase();
         const currentVersion = app.getVersion(); // package.json의 version (예: "1.0.0")
 
         // 1. 깃허브 최신 manifest.json 수신
