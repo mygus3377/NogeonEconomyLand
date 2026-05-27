@@ -45,5 +45,8 @@ contextBridge.exposeInMainWorld('launcherAPI', {
     autoLogin: () => ipcRenderer.invoke('auth:auto-login'),
 
     // 🔄 런처 자체 자동 업데이트 검사
-    checkSelfUpdate: () => ipcRenderer.invoke('launcher:check-self-update')
+    checkSelfUpdate: () => ipcRenderer.invoke('launcher:check-self-update'),
+
+    // 🟢 실시간 서버 상태 및 동접자 정보 가져오기
+    pingServer: () => ipcRenderer.invoke('server:ping')
 });

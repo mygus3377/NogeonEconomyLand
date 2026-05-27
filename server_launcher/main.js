@@ -1,19 +1,21 @@
-const { app, BrowserWindow, ipcMain, shell, webContents } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
-// 🛡️ WebContents.prototype.send 안전 랩핑 (Object has been destroyed 오류 차단)
-const originalSend = webContents.prototype.send;
-webContents.prototype.send = function(...args) {
-    if (!this.isDestroyed()) {
-        try {
-            originalSend.apply(this, args);
-        } catch (err) {
-            console.warn("[Safe IPC] Blocked sending message to a destroyed window:", err.message);
+// 🛡️ WebContents 안전 랩핑 (Object has been destroyed 오류 차단)
+app.on('web-contents-created', (event, contents) => {
+    const originalSend = contents.send;
+    contents.send = function(...args) {
+        if (!contents.isDestroyed()) {
+            try {
+                originalSend.apply(contents, args);
+            } catch (err) {
+                console.warn("[Safe IPC] Blocked sending message to a destroyed window:", err.message);
+            }
         }
-    }
-};
+    };
+});
 
 const { Client } = require('minecraft-launcher-core');
 const msmc = require('msmc');
