@@ -18,6 +18,14 @@
     {
       "name": "ftb-library-forge-2001.2.12.jar",
       "sha256": "f09335944fff8ca3ef37a40e0b125ffb6707759ede258c73f9ce9bac61bfbf96"
+    },
+    {
+      "name": "ftb-teams-forge-2001.3.1.jar",
+      "sha256": "d6e3cf8d0bdae7f848764428c613ae2528aecf9d275b4169eb8e15da87b41863"
+    },
+    {
+      "name": "ftb-quests-forge-2001.4.14.jar",
+      "sha256": "0986ef763a3255f01d34c0b863e7323420744e9c7186677e61782b9ad91f2743"
     }
   ],
   "delete": [
