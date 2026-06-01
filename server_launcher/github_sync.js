@@ -125,6 +125,278 @@ async function downloadGdriveZip(fileId, downloadPath, onProgress) {
     });
 }
 
+/**
+ * Recursively moves files or merges directories from src to dest.
+ */
+function moveOrMergeSync(src, dest) {
+    if (!fs.existsSync(src)) return;
+    
+    const srcStat = fs.statSync(src);
+    
+    if (srcStat.isDirectory()) {
+        if (fs.existsSync(dest)) {
+            const destStat = fs.statSync(dest);
+            if (destStat.isDirectory()) {
+                // Both are directories: recursively merge contents
+                const items = fs.readdirSync(src);
+                for (const item of items) {
+                    moveOrMergeSync(path.join(src, item), path.join(dest, item));
+                }
+                try {
+                    fs.rmdirSync(src);
+                } catch (e) {
+                    console.warn(`[Merge Warning] Could not remove empty directory ${src}: ${e.message}`);
+                }
+            } else {
+                // Destination is a file: remove it first, then move directory
+                fs.rmSync(dest, { force: true });
+                fs.renameSync(src, dest);
+            }
+        } else {
+            // Destination does not exist: rename directory
+            fs.renameSync(src, dest);
+        }
+    } else {
+        // Source is a file
+        if (fs.existsSync(dest)) {
+            const destStat = fs.statSync(dest);
+            if (destStat.isDirectory()) {
+                // Destination is a directory: remove it first
+                fs.rmSync(dest, { recursive: true, force: true });
+            } else {
+                // Destination is a file: delete it
+                fs.unlinkSync(dest);
+            }
+        }
+        fs.renameSync(src, dest);
+    }
+}
+
+/**
+ * Backs up key user folders (saves, XaeroWorldMap, XaeroMinimapWaypoints, options.txt)
+ * to backups/backup_YYYYMMDD_HHMMSS folder and rotates backups to keep only the latest 5.
+ */
+function backupUserData(minecraftDir) {
+    try {
+        const targets = ['saves', 'XaeroWorldMap', 'XaeroMinimapWaypoints', 'options.txt'];
+        const backupBaseDir = path.join(minecraftDir, 'backups');
+        
+        // Check if any target exists
+        const existingTargets = targets.filter(target => fs.existsSync(path.join(minecraftDir, target)));
+        if (existingTargets.length === 0) {
+            console.log('[Backup] No user data to backup.');
+            return;
+        }
+
+        if (!fs.existsSync(backupBaseDir)) {
+            fs.mkdirSync(backupBaseDir, { recursive: true });
+        }
+
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const timestamp = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        const backupDestDir = path.join(backupBaseDir, `backup_${timestamp}`);
+
+        fs.mkdirSync(backupDestDir, { recursive: true });
+        console.log(`[Backup] Creating backup at: ${backupDestDir}`);
+
+        for (const target of existingTargets) {
+            const srcPath = path.join(minecraftDir, target);
+            const destPath = path.join(backupDestDir, target);
+            try {
+                if (typeof fs.cpSync === 'function') {
+                    fs.cpSync(srcPath, destPath, { recursive: true });
+                } else {
+                    // Fallback helper for older Node versions
+                    copyRecursiveSync(srcPath, destPath);
+                }
+                console.log(`[Backup] Successfully backed up: ${target}`);
+            } catch (copyErr) {
+                console.error(`[Backup Error] Failed to copy ${target}: ${copyErr.message}`);
+            }
+        }
+
+        // Rotate backups to keep only 5 latest backups
+        const backups = fs.readdirSync(backupBaseDir)
+            .filter(name => name.startsWith('backup_') && fs.statSync(path.join(backupBaseDir, name)).isDirectory())
+            .sort(); // Sorts ascending alphabetically (oldest first due to timestamp format)
+
+        if (backups.length > 5) {
+            const toDelete = backups.slice(0, backups.length - 5);
+            for (const oldBackup of toDelete) {
+                const oldPath = path.join(backupBaseDir, oldBackup);
+                try {
+                    fs.rmSync(oldPath, { recursive: true, force: true });
+                    console.log(`[Backup Rotation] Deleted old backup: ${oldBackup}`);
+                } catch (rmErr) {
+                    console.error(`[Backup Rotation Error] Failed to delete ${oldBackup}: ${rmErr.message}`);
+                }
+            }
+        }
+    } catch (err) {
+        console.error(`[Backup Error] Overall backup process failed: ${err.message}`);
+    }
+}
+
+function copyRecursiveSync(src, dest) {
+    const exists = fs.existsSync(src);
+    const stats = exists && fs.statSync(src);
+    const isDirectory = exists && stats.isDirectory();
+    if (isDirectory) {
+        fs.mkdirSync(dest, { recursive: true });
+        fs.readdirSync(src).forEach((childItemName) => {
+            copyRecursiveSync(path.join(src, childItemName), path.join(dest, childItemName));
+        });
+    } else {
+        fs.copyFileSync(src, dest);
+    }
+}
+
+/**
+ * Calculates human-readable relative time string.
+ */
+function getRelativeTimeString(diffMs) {
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHr = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHr / 24);
+    
+    if (diffSec < 60) return "방금 전";
+    if (diffMin < 60) return `${diffMin}분 전`;
+    if (diffHr < 24) return `${diffHr}시간 전`;
+    return `${diffDay}일 전`;
+}
+
+/**
+ * Lists all available backups with absolute and relative timestamps.
+ */
+function listBackups(minecraftDir) {
+    try {
+        const backupBaseDir = path.join(minecraftDir, 'backups');
+        if (!fs.existsSync(backupBaseDir)) {
+            return [];
+        }
+
+        const items = fs.readdirSync(backupBaseDir);
+        const backupList = [];
+
+        for (const item of items) {
+            // backup_YYYYMMDD_HHmmss 형식만 매칭 (임시 rollback 백업인 backup_before_restore_는 유저 UI 목록에서 감춤)
+            if (item.startsWith('backup_') && !item.startsWith('backup_before_restore_')) {
+                const fullPath = path.join(backupBaseDir, item);
+                if (fs.statSync(fullPath).isDirectory()) {
+                    const match = item.match(/^backup_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/);
+                    let backupDate = null;
+                    if (match) {
+                        const [_, yyyy, mm, dd, hh, min, ss] = match;
+                        backupDate = new Date(yyyy, mm - 1, dd, hh, min, ss);
+                    } else {
+                        backupDate = fs.statSync(fullPath).birthtime || fs.statSync(fullPath).mtime;
+                    }
+
+                    const now = new Date();
+                    const diffMs = now.getTime() - backupDate.getTime();
+                    
+                    const pad = (n) => String(n).padStart(2, '0');
+                    const absoluteTime = `${backupDate.getFullYear()}-${pad(backupDate.getMonth()+1)}-${pad(backupDate.getDate())} ${pad(backupDate.getHours())}:${pad(backupDate.getMinutes())}:${pad(backupDate.getSeconds())}`;
+                    const relativeTime = getRelativeTimeString(diffMs);
+
+                    backupList.push({
+                        folderName: item,
+                        timestamp: backupDate.getTime(),
+                        absoluteTime: absoluteTime,
+                        relativeTime: relativeTime
+                    });
+                }
+            }
+        }
+
+        return backupList.sort((a, b) => b.timestamp - a.timestamp);
+    } catch (err) {
+        console.error(`[Backup List Error] Failed to list backups: ${err.message}`);
+        return [];
+    }
+}
+
+/**
+ * Restores a specific backup by folder name.
+ * Temporarily backs up the current state as 'backup_before_restore_<timestamp>' to prevent data loss.
+ */
+function restoreBackup(minecraftDir, folderName) {
+    try {
+        const backupSrcDir = path.join(minecraftDir, 'backups', folderName);
+        if (!fs.existsSync(backupSrcDir)) {
+            throw new Error(`백업 폴더가 존재하지 않습니다: ${folderName}`);
+        }
+
+        console.log(`[Restore] Starting restore from: ${folderName}`);
+        const targets = ['saves', 'XaeroWorldMap', 'XaeroMinimapWaypoints', 'options.txt'];
+        
+        // 1. 안전장치: 현재 살아있는 데이터들을 'backup_before_restore_<timestamp>'로 복사 보관
+        const backupBaseDir = path.join(minecraftDir, 'backups');
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const timestamp = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        const rollbackDir = path.join(backupBaseDir, `backup_before_restore_${timestamp}`);
+
+        const existingTargets = targets.filter(target => fs.existsSync(path.join(minecraftDir, target)));
+        if (existingTargets.length > 0) {
+            fs.mkdirSync(rollbackDir, { recursive: true });
+            console.log(`[Restore Safety] Creating temporary rollback backup at: ${rollbackDir}`);
+            for (const target of existingTargets) {
+                const srcPath = path.join(minecraftDir, target);
+                const destPath = path.join(rollbackDir, target);
+                try {
+                    if (typeof fs.cpSync === 'function') {
+                        fs.cpSync(srcPath, destPath, { recursive: true });
+                    } else {
+                        copyRecursiveSync(srcPath, destPath);
+                    }
+                } catch (copyErr) {
+                    console.error(`[Restore Safety Error] Failed to backup ${target} before restore: ${copyErr.message}`);
+                }
+            }
+        }
+
+        // 2. 현재 활성 데이터 삭제
+        for (const target of targets) {
+            const targetPath = path.join(minecraftDir, target);
+            if (fs.existsSync(targetPath)) {
+                try {
+                    fs.rmSync(targetPath, { recursive: true, force: true });
+                    console.log(`[Restore Cleanup] Removed active target: ${target}`);
+                } catch (rmErr) {
+                    console.error(`[Restore Cleanup Error] Failed to remove active ${target}: ${rmErr.message}`);
+                }
+            }
+        }
+
+        // 3. 백업 데이터 복사 복원
+        const backupTargets = targets.filter(target => fs.existsSync(path.join(backupSrcDir, target)));
+        for (const target of backupTargets) {
+            const srcPath = path.join(backupSrcDir, target);
+            const destPath = path.join(minecraftDir, target);
+            try {
+                if (typeof fs.cpSync === 'function') {
+                    fs.cpSync(srcPath, destPath, { recursive: true });
+                } else {
+                    copyRecursiveSync(srcPath, destPath);
+                }
+                console.log(`[Restore Success] Restored target: ${target}`);
+            } catch (copyErr) {
+                console.error(`[Restore Error] Failed to copy ${target} back: ${copyErr.message}`);
+                throw new Error(`${target} 복원 도중 복사 오류 발생: ${copyErr.message}`);
+            }
+        }
+
+        console.log(`[Restore] Successfully restored from ${folderName}`);
+        return { success: true, rollbackFolder: `backup_before_restore_${timestamp}` };
+    } catch (err) {
+        console.error(`[Restore Failed] ${err.message}`);
+        return { success: false, error: err.message };
+    }
+}
+
 function flattenNestedFolder(targetDir) {
     try {
         console.log(`[Flatten] Starting nested folder check in: ${targetDir}`);
@@ -159,11 +431,7 @@ function flattenNestedFolder(targetDir) {
                     const srcPath = path.join(nestedDirPath, item);
                     const destPath = path.join(targetDir, item);
                     
-                    if (fs.existsSync(destPath)) {
-                        fs.rmSync(destPath, { recursive: true, force: true });
-                    }
-                    
-                    fs.renameSync(srcPath, destPath);
+                    moveOrMergeSync(srcPath, destPath);
                 }
                 
                 // 비어 있는 원래의 중첩 폴더 삭제
@@ -180,10 +448,8 @@ function flattenNestedFolder(targetDir) {
                     for (const item of nestedItems) {
                         const srcPath = path.join(nestedDirPath, item);
                         const destPath = path.join(targetDir, item);
-                        if (fs.existsSync(destPath)) {
-                            fs.rmSync(destPath, { recursive: true, force: true });
-                        }
-                        fs.renameSync(srcPath, destPath);
+                        
+                        moveOrMergeSync(srcPath, destPath);
                     }
                     fs.rmSync(nestedDirPath, { recursive: true, force: true });
                     console.log(`[Flatten Fallback] Finished elevating contents of: "${dir}"`);
@@ -329,5 +595,8 @@ module.exports = {
     calculateHash,
     downloadGdriveZip,
     extractZip,
-    syncModsFromGithub
+    syncModsFromGithub,
+    backupUserData,
+    listBackups,
+    restoreBackup
 };

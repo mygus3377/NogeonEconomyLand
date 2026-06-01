@@ -48,5 +48,11 @@ contextBridge.exposeInMainWorld('launcherAPI', {
     checkSelfUpdate: () => ipcRenderer.invoke('launcher:check-self-update'),
 
     // 🟢 실시간 서버 상태 및 동접자 정보 가져오기
-    pingServer: () => ipcRenderer.invoke('server:ping')
+    pingServer: () => ipcRenderer.invoke('server:ping'),
+
+    // 💾 백업 리스트 조회
+    listBackups: () => ipcRenderer.invoke('backup:list'),
+
+    // 💾 백업 복원 실행
+    restoreBackup: (folderName) => ipcRenderer.invoke('backup:restore', folderName)
 });

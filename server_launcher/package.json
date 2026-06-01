@@ -1,6 +1,6 @@
 {
   "name": "server-launcher",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "NoGeon Economy Land Server Dedicated Launcher",
   "main": "main.js",
   "scripts": {
@@ -27,6 +27,17 @@
   "build": {
     "appId": "com.nogeon.serverlauncher",
     "productName": "NoGeon Launcher",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "github_sync.js",
+      "gdrive_sync.js",
+      "index.html",
+      "style.css",
+      "icon.png",
+      "package.json"
+    ],
     "win": {
       "target": [
         "portable"

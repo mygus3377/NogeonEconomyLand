@@ -45,6 +45,12 @@ const patchModal = document.getElementById('patch-modal');
 const btnPatchClose = document.getElementById('btn-patch-close');
 const modalPatchContent = document.getElementById('modal-patch-content');
 
+// 백업 복구 모달 UI 요소 캐싱
+const btnUtilBackup = document.getElementById('btn-util-backup');
+const backupModal = document.getElementById('backup-modal');
+const btnBackupClose = document.getElementById('btn-backup-close');
+const backupListContainer = document.getElementById('backup-list-container');
+
 let authProfile = null;
 
 // 콘솔에 실시간 텍스트 출력 함수
@@ -490,6 +496,27 @@ if (btnUtilReset) {
     });
 }
 
+if (btnUtilBackup) {
+    btnUtilBackup.addEventListener('click', () => {
+        loadBackupList();
+        backupModal.classList.add('active');
+    });
+}
+
+if (btnBackupClose) {
+    btnBackupClose.addEventListener('click', () => {
+        backupModal.classList.remove('active');
+    });
+}
+
+if (backupModal) {
+    backupModal.addEventListener('click', (e) => {
+        if (e.target === backupModal) {
+            backupModal.classList.remove('active');
+        }
+    });
+}
+
 // 6. 로그 모달 닫기 및 복사 이벤트
 if (btnModalClose) {
     btnModalClose.addEventListener('click', () => {
@@ -586,4 +613,89 @@ if (btnUtilRefresh) {
             }
         }
     });
+}
+
+// 💾 백업 리스트 로드 및 렌더링 함수
+async function loadBackupList() {
+    try {
+        if (backupListContainer) backupListContainer.innerHTML = '';
+        const list = await window.launcherAPI.listBackups();
+        
+        if (!list || list.length === 0) {
+            const noData = document.createElement('div');
+            noData.className = 'backup-no-data';
+            noData.textContent = "저장된 백업 파일이 없습니다. 모드팩 동기화 시 자동으로 생성됩니다.";
+            backupListContainer.appendChild(noData);
+            return;
+        }
+
+        list.forEach(item => {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'backup-item';
+
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'backup-info';
+
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'backup-time';
+            timeSpan.textContent = item.absoluteTime;
+
+            const relSpan = document.createElement('span');
+            relSpan.className = 'backup-relative';
+            relSpan.textContent = `(${item.relativeTime})`;
+
+            infoDiv.appendChild(timeSpan);
+            infoDiv.appendChild(relSpan);
+
+            const restoreBtn = document.createElement('button');
+            restoreBtn.className = 'backup-restore-btn';
+            restoreBtn.textContent = '복구하기';
+            restoreBtn.addEventListener('click', async () => {
+                const confirmRestore = confirm(`⚠️ 맵 & 세이브 복구 경고\n\n정말로 선택한 시점(${item.absoluteTime})으로 복구하시겠습니까?\n\n[주의]\n1. 현재의 세이브 및 미니맵 데이터가 해당 백업 데이터로 교체(덮어쓰기)됩니다.\n2. 혹시 모를 실수를 방지하기 위해, 현재 상태도 'backup_before_restore_' 폴더에 자동 백업되므로 원하실 경우 수동 롤백이 가능합니다.`);
+                if (confirmRestore) {
+                    appendLog(`[복구 시작] ${item.absoluteTime} 시점 백업 복구를 실행합니다...`, 'system');
+                    backupModal.classList.remove('active');
+                    
+                    // 화면 컨트롤 잠금
+                    btnSync.disabled = true;
+                    btnLaunch.disabled = true;
+                    btnUtilReset.disabled = true;
+                    if (btnUtilBackup) btnUtilBackup.disabled = true;
+
+                    progressText.textContent = "세이브 & 미니맵 데이터 복구 작업 진행 중...";
+                    progressBar.style.width = "50%";
+
+                    try {
+                        const res = await window.launcherAPI.restoreBackup(item.folderName);
+                        if (res && res.success) {
+                            progressBar.style.width = "100%";
+                            progressText.textContent = "✅ 백업 데이터 복구 성공!";
+                            appendLog(`[복구 성공] 성공적으로 복원되었습니다. (안전 롤백 백업 생성됨: ${res.rollbackFolder})`, 'system');
+                            alert(`✅ 복구가 완료되었습니다!\n\n만약 실수로 복원하신 경우, 게임 폴더의 backups/${res.rollbackFolder}에서 원래 데이터를 수동으로 찾을 수 있습니다.`);
+                        } else {
+                            throw new Error(res ? res.error : "알 수 없는 에러");
+                        }
+                    } catch (restoreErr) {
+                        progressBar.style.width = "0%";
+                        progressText.textContent = `❌ 복구 실패: ${restoreErr.message}`;
+                        appendLog(`[복구 오류] 복구 진행 중 문제가 발생했습니다: ${restoreErr.message}`, 'error');
+                        alert(`❌ 복구 실패: ${restoreErr.message}`);
+                    } finally {
+                        // 잠금 해제
+                        btnSync.disabled = false;
+                        btnLaunch.disabled = false;
+                        btnUtilReset.disabled = false;
+                        if (btnUtilBackup) btnUtilBackup.disabled = false;
+                        checkUpdatesAndSetUI();
+                    }
+                }
+            });
+
+            itemDiv.appendChild(infoDiv);
+            itemDiv.appendChild(restoreBtn);
+            backupListContainer.appendChild(itemDiv);
+        });
+    } catch (err) {
+        appendLog(`[에러] 백업 목록을 불러올 수 없습니다: ${err.message}`, 'error');
+    }
 }

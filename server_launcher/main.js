@@ -20,7 +20,7 @@ app.on('web-contents-created', (event, contents) => {
 const { Client } = require('minecraft-launcher-core');
 const msmc = require('msmc');
 const axios = require('axios');
-const { calculateHash, downloadGdriveZip, extractZip, syncModsFromGithub } = require('./github_sync');
+const { calculateHash, downloadGdriveZip, extractZip, syncModsFromGithub, backupUserData, listBackups, restoreBackup } = require('./github_sync');
 
 let mainWindow;
 const launcher = new Client();
@@ -209,6 +209,14 @@ ipcMain.on('game:sync', async (event) => {
                     percent 
                 });
             });
+
+            // 백업 실행
+            event.sender.send('status:update', { 
+                status: 'extracting', 
+                message: '[최초 설치] 혹시 모를 상황에 대비해 기존 맵/세이브 데이터를 백업하는 중...', 
+                percent: 85 
+            });
+            backupUserData(minecraftDir);
 
             // 압축 해제
             event.sender.send('status:update', { 
@@ -943,4 +951,14 @@ ipcMain.handle('server:ping', async () => {
         console.error("[Server Status Query Error]", err);
         return { success: false, online: false, ping: 999, players: 0, maxPlayers: 0 };
     }
+});
+
+// IPC 13: 백업 리스트 조회
+ipcMain.handle('backup:list', async () => {
+    return listBackups(minecraftDir);
+});
+
+// IPC 14: 백업 복원 실행
+ipcMain.handle('backup:restore', async (event, folderName) => {
+    return restoreBackup(minecraftDir, folderName);
 });
