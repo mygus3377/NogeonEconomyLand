@@ -1,5 +1,5 @@
 {
-  "version": "1.0.19",
+  "version": "1.0.20",
   "server_ip": "216.163.186.53",
   "server_port": 19000,
   "gdrive_file_id": "1_kV4TFGyr9QcNelaUtLtXci3VMznxcNf",
@@ -9,7 +9,7 @@
   "mods": [
     {
       "name": "nogeon-economy-land-0.1.0.jar",
-      "sha256": "5315dbd339cb1957526e5e44049c091e853dcec0164412720757c7c1ab23e380"
+      "sha256": "8886aa79b64e1b93f78ba0440abed75d40442ff1dc4ae2347263cd95fdb70fc8"
     },
     {
       "name": "ftb-chunks-forge-2001.3.7.jar",
