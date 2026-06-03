@@ -9,7 +9,8 @@
     "TacZReloadTimeMixin",
     "CreateGogglesItemMixin",
     "ItemStackMixin",
-    "CartAssemblerBlockEntityMixin"
+    "CartAssemblerBlockEntityMixin",
+    "TaczLivingEntityMixin"
   ],
   "client": [
     "TacZAnimationRunnerSpeedMixin",
