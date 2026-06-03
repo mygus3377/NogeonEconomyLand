@@ -22,7 +22,8 @@
     "WearableItemLayerMixin",
     "PatchedHeadLayerMixin",
     "CustomHeadLayerMixin",
-    "RenderSystemMixin",
+    "RenderTypeAccessor",
+    "RenderStateShardAccessor",
     "ItemRendererMixin"
   ],
   "injectors": {

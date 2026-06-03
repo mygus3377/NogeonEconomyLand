@@ -71,6 +71,7 @@ public final class ClientForgeEvents {
     private static long minerEyeLastScanTick = -1L;
     private static BlockPos minerEyeLastScanCenter = BlockPos.ZERO;
     private static final ThreadLocal<ItemStack> RENDERING_ENHANCE_STACK = ThreadLocal.withInitial(() -> ItemStack.EMPTY);
+    private static final java.util.Map<String, RenderType> ENHANCE_GLINT_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
 
     private ClientForgeEvents() {
     }
@@ -91,16 +92,25 @@ public final class ClientForgeEvents {
         return false;
     }
 
-    public static float[] getEnhanceGlintColor() {
+    public static int getRenderingEnhanceLevel() {
         ItemStack stack = RENDERING_ENHANCE_STACK.get();
-        if (stack == null || stack.isEmpty()) {
-            return null;
+        if (stack != null && !stack.isEmpty()) {
+            return enhanceLevel(stack);
         }
-        int level = enhanceLevel(stack);
-        if (level <= 0) {
-            return null;
+        return 0;
+    }
+
+    public static RenderType getEnhanceGlintRenderType(RenderType baseGlint, int level) {
+        if (level <= 0 || baseGlint == null) return baseGlint;
+        String baseName = ((com.nogeon.economyland.mixin.RenderTypeAccessor) baseGlint).getName();
+        if (baseName.startsWith("enhance_")) {
+            return baseGlint;
         }
-        
+        String key = baseName + "_" + level;
+        return ENHANCE_GLINT_CACHE.computeIfAbsent(key, k -> createEnhanceGlint(baseGlint, baseName, level));
+    }
+
+    private static RenderType createEnhanceGlint(RenderType baseGlint, String baseName, int level) {
         float r = 1.0F, g = 1.0F, b = 1.0F;
         if (level >= 20) {
             double phase = (System.currentTimeMillis() % 2000L) / 2000.0D * Math.PI * 2.0D;
@@ -122,7 +132,49 @@ public final class ClientForgeEvents {
         } else {
             r = 0.30F; g = 0.70F; b = 1.0F; // 푸른빛
         }
-        return new float[]{r, g, b};
+
+        net.minecraft.client.renderer.RenderStateShard.TransparencyStateShard transparency = new com.nogeon.economyland.client.EnhanceGlintTransparency(
+            "enhance_glint_transparency_" + level + "_" + System.nanoTime(), r, g, b
+        );
+
+        boolean isDirect = baseName.contains("direct") || baseName.contains("Direct");
+        boolean isEntity = baseName.contains("entity") || baseName.contains("Entity");
+        boolean isArmor = baseName.contains("armor") || baseName.contains("Armor");
+
+        net.minecraft.client.renderer.RenderStateShard.ShaderStateShard shader;
+        if (isArmor) {
+            shader = com.nogeon.economyland.mixin.RenderStateShardAccessor.getArmorEntityGlintShader();
+        } else if (isEntity) {
+            shader = isDirect ? com.nogeon.economyland.mixin.RenderStateShardAccessor.getEntityGlintDirectShader() : com.nogeon.economyland.mixin.RenderStateShardAccessor.getEntityGlintShader();
+        } else {
+            shader = isDirect ? com.nogeon.economyland.mixin.RenderStateShardAccessor.getGlintDirectShader() : com.nogeon.economyland.mixin.RenderStateShardAccessor.getGlintShader();
+        }
+
+        net.minecraft.client.renderer.RenderStateShard.TextureStateShard texture = new net.minecraft.client.renderer.RenderStateShard.TextureStateShard(
+            isArmor ? net.minecraft.client.renderer.texture.TextureAtlas.LOCATION_BLOCKS : new net.minecraft.resources.ResourceLocation("textures/misc/enchanted_glint_item.png"),
+            true,
+            false
+        );
+
+        RenderType.CompositeState state = RenderType.CompositeState.builder()
+            .setShaderState(shader)
+            .setTextureState(texture)
+            .setWriteMaskState(com.nogeon.economyland.mixin.RenderStateShardAccessor.getColorWrite())
+            .setCullState(com.nogeon.economyland.mixin.RenderStateShardAccessor.getNoCull())
+            .setDepthTestState(com.nogeon.economyland.mixin.RenderStateShardAccessor.getEqual())
+            .setTransparencyState(transparency)
+            .setTexturingState(com.nogeon.economyland.mixin.RenderStateShardAccessor.getGlintTexturing())
+            .createCompositeState(false);
+
+        return com.nogeon.economyland.mixin.RenderTypeAccessor.callCreate(
+            "enhance_" + baseName + "_" + level,
+            com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_TEX,
+            com.mojang.blaze3d.vertex.VertexFormat.Mode.QUADS,
+            256,
+            false,
+            false,
+            state
+        );
     }
 
     public static void setWeaponVfxEnabled(boolean enabled) {
