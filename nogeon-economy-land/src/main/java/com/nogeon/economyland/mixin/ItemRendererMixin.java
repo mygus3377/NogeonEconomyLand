@@ -40,7 +40,7 @@ public class ItemRendererMixin {
         cancellable = true
     )
     private static void onGetFoilBuffer(MultiBufferSource bufferSource, RenderType renderType, boolean isItemGlint, boolean glint, CallbackInfoReturnable<VertexConsumer> cir) {
-        if (glint && ClientForgeEvents.isRenderingEnhanced()) {
+        if (ClientForgeEvents.isRenderingEnhanced()) {
             int level = ClientForgeEvents.getRenderingEnhanceLevel();
             RenderType targetGlint;
             if (net.minecraft.client.Minecraft.useShaderTransparency() && renderType == net.minecraft.client.renderer.Sheets.translucentItemSheet()) {
@@ -58,7 +58,7 @@ public class ItemRendererMixin {
         cancellable = true
     )
     private static void onGetFoilBufferDirect(MultiBufferSource bufferSource, RenderType renderType, boolean isItemGlint, boolean glint, CallbackInfoReturnable<VertexConsumer> cir) {
-        if (glint && ClientForgeEvents.isRenderingEnhanced()) {
+        if (ClientForgeEvents.isRenderingEnhanced()) {
             int level = ClientForgeEvents.getRenderingEnhanceLevel();
             RenderType targetGlint = ClientForgeEvents.getEnhanceGlintRenderType(isItemGlint ? RenderType.glintDirect() : RenderType.entityGlintDirect(), level);
             cir.setReturnValue(VertexMultiConsumer.create(bufferSource.getBuffer(targetGlint), bufferSource.getBuffer(renderType)));
@@ -71,7 +71,7 @@ public class ItemRendererMixin {
         cancellable = true
     )
     private static void onGetArmorFoilBuffer(MultiBufferSource bufferSource, RenderType renderType, boolean glint, boolean glintCompatible, CallbackInfoReturnable<VertexConsumer> cir) {
-        if (glint && ClientForgeEvents.isRenderingEnhanced()) {
+        if (ClientForgeEvents.isRenderingEnhanced()) {
             int level = ClientForgeEvents.getRenderingEnhanceLevel();
             RenderType targetGlint = ClientForgeEvents.getEnhanceGlintRenderType(glintCompatible ? RenderType.armorGlint() : RenderType.armorEntityGlint(), level);
             cir.setReturnValue(VertexMultiConsumer.create(bufferSource.getBuffer(targetGlint), bufferSource.getBuffer(renderType)));
