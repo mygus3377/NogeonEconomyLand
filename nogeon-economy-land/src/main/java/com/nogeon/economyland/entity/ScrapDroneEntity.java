@@ -36,6 +36,7 @@ import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -648,7 +649,7 @@ public final class ScrapDroneEntity extends PathfinderMob {
                 List<LivingEntity> potentialTargets = sLevel.getEntitiesOfClass(
                     LivingEntity.class,
                     proj.getBoundingBox().inflate(16.0D),
-                    entity -> entity.isAlive() && entity instanceof Monster
+                    entity -> isDroneCombatTarget(entity, sOwner)
                 );
                 LivingEntity homingTarget = null;
                 double minDist = Double.MAX_VALUE;
@@ -800,7 +801,7 @@ public final class ScrapDroneEntity extends PathfinderMob {
                     if (burstDelay > 0) {
                         burstDelay--;
                     } else {
-                        if (burstTarget != null && burstTarget.isAlive() && this.distanceToSqr(burstTarget) <= 400.0D) {
+                        if (isDroneCombatTarget(burstTarget, sOwner) && this.distanceToSqr(burstTarget) <= supportRangeSqr(sOwner)) {
                             boolean hasWeaponUpg = sOwner.getPersistentData().getBoolean("nogeon_engineer_drone_upgrade_inventory");
                             boolean hasGun = hasWeaponUpg && sOwner.getPersistentData().contains("nogeon_engineer_drone_gun");
                             ItemStack gunStack = ItemStack.EMPTY;
@@ -829,17 +830,10 @@ public final class ScrapDroneEntity extends PathfinderMob {
                 }
 
                 if (attackCooldown <= 0 && burstCount <= 0) {
-                    int sensorLvl = sOwner.getPersistentData().getInt("nogeon_engineer_drone_upgrade_sensor_level");
-                    if (sensorLvl <= 0 && sOwner.getPersistentData().getBoolean("nogeon_engineer_drone_upgrade_sensor")) {
-                        sensorLvl = 1;
-                    }
-                    double supportRange = 12.0D;
-                    if (sensorLvl > 0) {
-                        supportRange = 12.0D + (sensorLvl - 1) * 5.0D;
-                    }
+                    double supportRange = supportRange(sOwner);
                     AABB targetBox = this.getBoundingBox().inflate(supportRange);
                     List<LivingEntity> targets = sLevel.getEntitiesOfClass(LivingEntity.class, targetBox,
-                        entity -> entity != sOwner && (entity instanceof Monster) && entity.isAlive()
+                        entity -> isDroneCombatTarget(entity, sOwner)
                     );
                     if (!targets.isEmpty()) {
                         LivingEntity closest = null;
@@ -1152,6 +1146,35 @@ public final class ScrapDroneEntity extends PathfinderMob {
         return boostedDamage * com.nogeon.economyland.item.SmithingService.damageMultiplier(gunStack) * gunReforgeDamageMultiplier(gunStack);
     }
 
+    private double supportRange(ServerPlayer owner) {
+        int sensorLvl = owner.getPersistentData().getInt("nogeon_engineer_drone_upgrade_sensor_level");
+        if (sensorLvl <= 0 && owner.getPersistentData().getBoolean("nogeon_engineer_drone_upgrade_sensor")) {
+            sensorLvl = 1;
+        }
+        return sensorLvl > 0 ? 12.0D + (sensorLvl - 1) * 5.0D : 12.0D;
+    }
+
+    private double supportRangeSqr(ServerPlayer owner) {
+        double range = supportRange(owner);
+        return range * range;
+    }
+
+    private boolean isDroneCombatTarget(LivingEntity entity, ServerPlayer owner) {
+        if (entity == null || entity == owner || entity == this || !entity.isAlive()) {
+            return false;
+        }
+        if (entity instanceof Player) {
+            return false;
+        }
+        if (entity.isAlliedTo(owner) || owner.isAlliedTo(entity)) {
+            return false;
+        }
+        if (entity instanceof Enemy || entity instanceof Monster) {
+            return true;
+        }
+        return entity instanceof Mob mob && mob.getTarget() == owner;
+    }
+
     private int computeAttackCooldown(GunType gunType, int attackLvl, ItemStack gunStack) {
         int baseCooldown = switch (gunType) {
             case SNIPER -> 60;
@@ -1244,7 +1267,7 @@ public final class ScrapDroneEntity extends PathfinderMob {
         int hitCount = 0;
 
         for (LivingEntity splashTarget : sLevel.getEntitiesOfClass(LivingEntity.class, target.getBoundingBox().inflate(radius),
-            entity -> entity != owner && entity != target && entity instanceof Monster && entity.isAlive())) {
+            entity -> entity != target && isDroneCombatTarget(entity, owner))) {
             splashTarget.hurt(owner.damageSources().indirectMagic(this, owner), splashDamage);
             hitCount++;
             if (hitCount >= maxTargets) {
@@ -1274,6 +1297,67 @@ public final class ScrapDroneEntity extends PathfinderMob {
         }
     }
 
+    private boolean shouldUseNativeTaczDroneFire(ItemStack gunStack) {
+        return com.tacz.guns.api.item.IGun.getIGunOrNull(gunStack) != null;
+    }
+
+    private com.tacz.guns.api.entity.IGunOperator prepareNativeTaczDroneFire(ItemStack gunStack) {
+        ItemStack heldGun = this.getItemBySlot(EquipmentSlot.MAINHAND);
+        if (!sameDroneGunLoadout(heldGun, gunStack)) {
+            this.setItemSlot(EquipmentSlot.MAINHAND, gunStack.copy());
+            heldGun = this.getItemBySlot(EquipmentSlot.MAINHAND);
+        }
+
+        com.tacz.guns.api.item.IGun heldIGun = com.tacz.guns.api.item.IGun.getIGunOrNull(heldGun);
+        if (heldIGun != null) {
+            heldIGun.setCurrentAmmoCount(heldGun, Math.max(heldIGun.getCurrentAmmoCount(heldGun), 30));
+            heldIGun.setDummyAmmoAmount(heldGun, Math.max(heldIGun.getDummyAmmoAmount(heldGun), 30));
+            heldIGun.setMaxDummyAmmoAmount(heldGun, Math.max(heldIGun.getMaxDummyAmmoAmount(heldGun), 30));
+        }
+
+        com.tacz.guns.api.entity.IGunOperator operator = com.tacz.guns.api.entity.IGunOperator.fromLivingEntity(this);
+        com.tacz.guns.entity.shooter.ShooterDataHolder data = operator.getDataHolder();
+        if (data.currentGunItem == null || !sameDroneGunLoadout(data.currentGunItem.get(), heldGun)) {
+            operator.draw(() -> this.getItemBySlot(EquipmentSlot.MAINHAND));
+            data = operator.getDataHolder();
+        }
+
+        long readyTime = System.currentTimeMillis() - 10000L;
+        data.currentGunItem = () -> this.getItemBySlot(EquipmentSlot.MAINHAND);
+        if (data.drawTimestamp < 0L || data.drawTimestamp > readyTime) {
+            data.drawTimestamp = readyTime;
+        }
+        data.reloadTimestamp = -1L;
+        data.reloadStateType = com.tacz.guns.api.entity.ReloadState.StateType.NOT_RELOADING;
+        data.sprintTimestamp = -1L;
+        data.sprintTimeS = 0.0F;
+        return operator;
+    }
+
+    private boolean sameDroneGunLoadout(ItemStack a, ItemStack b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty() || a.getItem() != b.getItem()) {
+            return false;
+        }
+        ItemStack aCopy = a.copy();
+        ItemStack bCopy = b.copy();
+        stripTaczRuntimeState(aCopy);
+        stripTaczRuntimeState(bCopy);
+        return ItemStack.matches(aCopy, bCopy);
+    }
+
+    private void stripTaczRuntimeState(ItemStack stack) {
+        if (!stack.hasTag()) {
+            return;
+        }
+        CompoundTag tag = stack.getTag();
+        tag.remove("GunCurrentAmmoCount");
+        tag.remove("DummyAmmo");
+        tag.remove("MaxDummyAmmo");
+        tag.remove("HasBulletInBarrel");
+        tag.remove("HeatAmount");
+        tag.remove("OverHeated");
+    }
+
     private boolean executeFire(LivingEntity target, ItemStack gunStack, GunType type, int attackLvl, ServerLevel sLevel, ServerPlayer owner) {
         if (!target.isAlive() || getCharge() <= 0) return false;
 
@@ -1285,18 +1369,7 @@ public final class ScrapDroneEntity extends PathfinderMob {
 
         // tacz 진짜 총격 API 이식
         com.tacz.guns.api.item.IGun iGun = com.tacz.guns.api.item.IGun.getIGunOrNull(gunStack);
-        if (iGun != null) {
-            ItemStack heldGun = this.getItemBySlot(EquipmentSlot.MAINHAND);
-            if (heldGun.getItem() != gunStack.getItem()) {
-                this.setItemSlot(EquipmentSlot.MAINHAND, gunStack.copy());
-                heldGun = this.getItemBySlot(EquipmentSlot.MAINHAND);
-            }
-            com.tacz.guns.api.item.IGun heldIGun = com.tacz.guns.api.item.IGun.getIGunOrNull(heldGun);
-            if (heldIGun != null) {
-                heldIGun.setCurrentAmmoCount(heldGun, 30);
-                heldIGun.setDummyAmmoAmount(heldGun, 30);
-            }
-
+        if (iGun != null && shouldUseNativeTaczDroneFire(gunStack)) {
             hasAmmo = isLaser || hasDroneAmmo(owner, gunStack);
             if (!hasAmmo) {
                 if (this.tickCount % 10 == 0) {
@@ -1319,16 +1392,8 @@ public final class ScrapDroneEntity extends PathfinderMob {
             float pitch = (float) -Math.toDegrees(Math.atan2(dy, xzDist));
             float yaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0F;
 
-            com.tacz.guns.api.entity.IGunOperator operator = com.tacz.guns.api.entity.IGunOperator.fromLivingEntity(this);
+            com.tacz.guns.api.entity.IGunOperator operator = prepareNativeTaczDroneFire(gunStack);
             com.tacz.guns.api.entity.ShootResult result = operator.shoot(() -> pitch, () -> yaw);
-            
-            System.out.println("[ScrapDroneDebug] Gun: " + gunStack.getItem().getDescriptionId() 
-                + ", Ammo: " + iGun.getCurrentAmmoCount(gunStack) 
-                + ", ShootResult: " + result 
-                + ", isBolting: " + operator.getSynIsBolting() 
-                + ", shootCoolDown: " + operator.getSynShootCoolDown() 
-                + ", drawCoolDown: " + operator.getSynDrawCoolDown()
-                + ", needCheckAmmo: " + operator.needCheckAmmo());
 
             if (result == com.tacz.guns.api.entity.ShootResult.SUCCESS) {
                 if (!isLaser) {
@@ -1350,7 +1415,6 @@ public final class ScrapDroneEntity extends PathfinderMob {
                 setExpression(2);
                 return true;
             } else if (result == com.tacz.guns.api.entity.ShootResult.NEED_BOLT) {
-                System.out.println("[ScrapDroneDebug] Triggering bolt action!");
                 operator.bolt();
                 return false;
             } else if (result == com.tacz.guns.api.entity.ShootResult.NO_AMMO || result == com.tacz.guns.api.entity.ShootResult.UNKNOWN_FAIL) {
@@ -1466,7 +1530,7 @@ public final class ScrapDroneEntity extends PathfinderMob {
                 
                 AABB splashBox = target.getBoundingBox().inflate(3.0D);
                 List<LivingEntity> splashTargets = sLevel.getEntitiesOfClass(LivingEntity.class, splashBox,
-                    entity -> entity != owner && entity != target && (entity instanceof Monster) && entity.isAlive()
+                    entity -> entity != target && isDroneCombatTarget(entity, owner)
                 );
                 for (LivingEntity st : splashTargets) {
                     st.hurt(owner.damageSources().indirectMagic(this, owner), damagePerPellet);

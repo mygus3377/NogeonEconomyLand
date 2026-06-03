@@ -9,6 +9,8 @@
     "TacZReloadTimeMixin",
     "CreateGogglesItemMixin",
     "ItemStackMixin",
+    "AbstractFurnaceBlockEntityMixin",
+    "CampfireBlockEntityMixin",
     "CartAssemblerBlockEntityMixin",
     "TaczLivingEntityMixin"
   ],
