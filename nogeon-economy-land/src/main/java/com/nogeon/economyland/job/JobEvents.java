@@ -67,6 +67,24 @@ public final class JobEvents {
     public static final java.util.Map<BlockPos, Integer> FERTILE_SOILS = new java.util.concurrent.ConcurrentHashMap<>();
     public static final java.util.Map<BlockPos, FisheryZone> FISHERY_ZONES = new java.util.concurrent.ConcurrentHashMap<>();
 
+    private static final java.util.List<HarvestCheck> PENDING_HARVEST_CHECKS = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    private static class HarvestCheck {
+        final ServerPlayer player;
+        final ServerLevel level;
+        final BlockPos pos;
+        final BlockState oldState;
+        final long gameTime;
+
+        HarvestCheck(ServerPlayer player, ServerLevel level, BlockPos pos, BlockState oldState, long gameTime) {
+            this.player = player;
+            this.level = level;
+            this.pos = pos;
+            this.oldState = oldState;
+            this.gameTime = gameTime;
+        }
+    }
+
     public static class FisheryZone {
         public final BlockPos pos;
         public int ticksRemaining;
@@ -1453,6 +1471,50 @@ public final class JobEvents {
         }
     }
 
+    private static void applyModCropFarmerPerks(ServerPlayer player, BlockState state, BlockPos pos) {
+        PlayerProfile profile = EconomyState.get(player.server).profile(player.getUUID());
+        JobProgress progress = profile.job(JobType.FARMER);
+        int fieldRoutineLevel = progress.nodeLevel(SkillNode.FARMER_FIELD_ROUTINE);
+        ServerLevel level = player.serverLevel();
+        int dropMultiplier = 1;
+        if (fieldRoutineLevel > 0 && roll(player, scaledChance(fieldRoutineLevel, 1.5D, 45.0D))) {
+            dropMultiplier++;
+        }
+        int earthMiracleLevel = progress.nodeLevel(SkillNode.FARMER_EARTH_MIRACLE);
+        boolean makePlusGrade = profile.selectedJob() == JobType.FARMER && earthMiracleLevel > 0 && (player.getRandom().nextDouble() * 100.0D < (3.0D + earthMiracleLevel * 2.0D));
+
+        if (dropMultiplier > 1) {
+            java.util.List<ItemStack> drops = Block.getDrops(state, level, pos, level.getBlockEntity(pos), player, player.getMainHandItem());
+            for (ItemStack drop : drops) {
+                if (drop.isEmpty()) continue;
+                ItemStack bonus = drop.copy();
+                bonus.setCount(bonus.getCount() * (dropMultiplier - 1));
+                if (makePlusGrade) {
+                    applyPlusGrade(bonus);
+                }
+                Block.popResource(level, pos, bonus);
+            }
+        } else if (makePlusGrade) {
+            java.util.List<ItemStack> drops = Block.getDrops(state, level, pos, level.getBlockEntity(pos), player, player.getMainHandItem());
+            for (ItemStack drop : drops) {
+                if (drop.isEmpty()) continue;
+                ItemStack bonus = drop.copy();
+                bonus.setCount(1);
+                applyPlusGrade(bonus);
+                Block.popResource(level, pos, bonus);
+                break;
+            }
+        }
+
+        int bountifulLevel = progress.nodeLevel(SkillNode.FARMER_BOUNTIFUL_HARVEST);
+        if (profile.selectedJob() == JobType.FARMER && bountifulLevel > 0 && roll(player, Math.min(60, 8 + bountifulLevel * 5))) {
+            growNearbyCropsBountiful(level, state, pos, bountifulLevel);
+            player.displayClientMessage(Component.literal("§e✨ [풍요로운 손길] §f대지의 은총으로 주변 작물들이 한 번에 성장합니다!"), true);
+        }
+
+        chargeNearbyScarecrow(player, pos, 1);
+    }
+
     private static void applyMinerPerks(ServerPlayer player, BlockState state, BlockPos pos) {
         PlayerProfile profile = EconomyState.get(player.server).profile(player.getUUID());
         JobProgress progress = profile.job(JobType.MINER);
@@ -1926,7 +1988,28 @@ public final class JobEvents {
         if (state.getBlock() instanceof CropBlock crop) {
             return crop.isMaxAge(state);
         }
+        for (net.minecraft.world.level.block.state.properties.Property<?> prop : state.getProperties()) {
+            if (prop instanceof net.minecraft.world.level.block.state.properties.IntegerProperty intProp && prop.getName().equals("age")) {
+                int currentAge = state.getValue(intProp);
+                int maxAge = intProp.getPossibleValues().stream().mapToInt(Integer::intValue).max().orElse(0);
+                if (currentAge >= maxAge) {
+                    return true;
+                }
+            }
+        }
         return isStemFruitBlock(state);
+    }
+
+    private static int getBlockAge(BlockState state) {
+        if (state.getBlock() instanceof CropBlock crop) {
+            return state.getValue(CropBlock.AGE);
+        }
+        for (net.minecraft.world.level.block.state.properties.Property<?> prop : state.getProperties()) {
+            if (prop instanceof net.minecraft.world.level.block.state.properties.IntegerProperty intProp && prop.getName().equals("age")) {
+                return state.getValue(intProp);
+            }
+        }
+        return 0;
     }
 
     private static boolean isStemFruitBlock(BlockState state) {
@@ -2957,6 +3040,41 @@ public final class JobEvents {
             return;
         }
 
+        if (event.level instanceof ServerLevel sLevel) {
+            long curTime = event.level.getGameTime();
+            java.util.List<HarvestCheck> toRemove = new java.util.ArrayList<>();
+            for (HarvestCheck check : PENDING_HARVEST_CHECKS) {
+                if (check.level.dimension().equals(sLevel.dimension()) && curTime > check.gameTime) {
+                    toRemove.add(check);
+                    BlockState newState = sLevel.getBlockState(check.pos);
+                    boolean harvested = false;
+                    if (newState.isAir() || newState.getBlock() != check.oldState.getBlock()) {
+                        harvested = true;
+                    } else {
+                        int oldAge = getBlockAge(check.oldState);
+                        int newAge = getBlockAge(newState);
+                        if (newAge < oldAge) {
+                            harvested = true;
+                        }
+                    }
+                    if (harvested) {
+                        ServerPlayer player = check.player;
+                        if (player.isAlive()) {
+                            EconomyState econState = EconomyState.get(player.server);
+                            PlayerProfile profile = econState.profile(player.getUUID());
+                            if (profile.selectedJob() == JobType.FARMER) {
+                                int exp = farmerCropExp(check.oldState);
+                                addExp(player, JobType.FARMER, exp);
+                                grantActivityCredits(profile, econState, JobType.FARMER, Math.max(20L, exp * 3L));
+                                applyModCropFarmerPerks(player, check.oldState, check.pos);
+                            }
+                        }
+                    }
+                }
+            }
+            PENDING_HARVEST_CHECKS.removeAll(toRemove);
+        }
+
         if (event.level.getGameTime() % 20 == 0) {
             for (java.util.Map.Entry<BlockPos, Integer> entry : new java.util.ArrayList<>(FERTILE_SOILS.entrySet())) {
                 BlockPos pos = entry.getKey();
@@ -3248,16 +3366,27 @@ public final class JobEvents {
         }
 
         net.minecraft.world.level.block.state.BlockState clickedState = event.getLevel().getBlockState(event.getPos());
-        if (isFarmerHarvestBlock(clickedState) && !isPlayerPlacedResourceBlock(player.serverLevel(), event.getPos())) {
+        if (isFarmerHarvestBlock(clickedState) 
+            && !isPlayerPlacedResourceBlock(player.serverLevel(), event.getPos())
+            && canRewardBlockBreak(player, event.getPos())) {
             PlayerProfile profile = EconomyState.get(player.server).profile(player.getUUID());
             if (profile.selectedJob() == JobType.FARMER) {
-                event.setCanceled(true);
-                applyFarmerPerks(player, clickedState, event.getPos());
-                int exp = farmerCropExp(clickedState);
-                addExp(player, JobType.FARMER, exp);
-                grantActivityCredits(profile, EconomyState.get(player.server), JobType.FARMER, Math.max(20L, exp * 3L));
-                player.swing(event.getHand(), true);
-                return;
+                ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(clickedState.getBlock());
+                boolean isVanillaCrop = blockId.getNamespace().equals("minecraft");
+                ItemStack mainHand = player.getItemInHand(event.getHand());
+                boolean isValidTool = mainHand.isEmpty() || mainHand.getItem() instanceof net.minecraft.world.item.HoeItem;
+
+                if (isVanillaCrop) {
+                    event.setCanceled(true);
+                    applyFarmerPerks(player, clickedState, event.getPos());
+                    int exp = farmerCropExp(clickedState);
+                    addExp(player, JobType.FARMER, exp);
+                    grantActivityCredits(profile, EconomyState.get(player.server), JobType.FARMER, Math.max(20L, exp * 3L));
+                    player.swing(event.getHand(), true);
+                    return;
+                } else if (isValidTool && !player.isShiftKeyDown()) {
+                    PENDING_HARVEST_CHECKS.add(new HarvestCheck(player, player.serverLevel(), event.getPos(), clickedState, player.level().getGameTime()));
+                }
             }
         }
 
