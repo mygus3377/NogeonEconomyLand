@@ -15,6 +15,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.entity.LivingEntity;
 
 @Mixin(ItemRenderer.class)
 public class ItemRendererMixin {
@@ -76,5 +78,37 @@ public class ItemRendererMixin {
             RenderType targetGlint = ClientForgeEvents.getEnhanceGlintRenderType(glintCompatible ? RenderType.armorGlint() : RenderType.armorEntityGlint(), level);
             cir.setReturnValue(VertexMultiConsumer.create(bufferSource.getBuffer(targetGlint), bufferSource.getBuffer(renderType)));
         }
+    }
+
+    @Inject(
+        method = "renderStatic(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;IILcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;Lnet/minecraft/world/level/Level;I)V",
+        at = @At("HEAD")
+    )
+    private void onRenderStaticHead1(ItemStack stack, ItemDisplayContext displayContext, int combinedLight, int combinedOverlay, PoseStack poseStack, MultiBufferSource bufferSource, Level level, int seed, CallbackInfo ci) {
+        ClientForgeEvents.setRenderingEnhanceStack(stack);
+    }
+
+    @Inject(
+        method = "renderStatic(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;IILcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;Lnet/minecraft/world/level/Level;I)V",
+        at = @At("RETURN")
+    )
+    private void onRenderStaticReturn1(ItemStack stack, ItemDisplayContext displayContext, int combinedLight, int combinedOverlay, PoseStack poseStack, MultiBufferSource bufferSource, Level level, int seed, CallbackInfo ci) {
+        ClientForgeEvents.clearRenderingEnhanceStack();
+    }
+
+    @Inject(
+        method = "renderStatic(Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;ZLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;Lnet/minecraft/world/level/Level;III)V",
+        at = @At("HEAD")
+    )
+    private void onRenderStaticHead2(LivingEntity entity, ItemStack stack, ItemDisplayContext displayContext, boolean leftHand, PoseStack poseStack, MultiBufferSource bufferSource, Level level, int combinedLight, int combinedOverlay, int seed, CallbackInfo ci) {
+        ClientForgeEvents.setRenderingEnhanceStack(stack);
+    }
+
+    @Inject(
+        method = "renderStatic(Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;ZLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;Lnet/minecraft/world/level/Level;III)V",
+        at = @At("RETURN")
+    )
+    private void onRenderStaticReturn2(LivingEntity entity, ItemStack stack, ItemDisplayContext displayContext, boolean leftHand, PoseStack poseStack, MultiBufferSource bufferSource, Level level, int combinedLight, int combinedOverlay, int seed, CallbackInfo ci) {
+        ClientForgeEvents.clearRenderingEnhanceStack();
     }
 }
