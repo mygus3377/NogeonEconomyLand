@@ -1,0 +1,27 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All-Rights-Reserved"
+
+[[mods]]
+modId="nogeon_economy_land"
+version="${version}"
+displayName="NoGeon Economy Land"
+authors="NoGeonBonServer"
+description='''Credits, jobs, land, shops, trades, auction and chance systems for a Forge server.'''
+
+[[dependencies.nogeon_economy_land]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.nogeon_economy_land]]
+modId="minecraft"
+mandatory=true
+versionRange="[${minecraft_version}]"
+ordering="NONE"
+side="BOTH"
+
+[[mixins]]
+config="nogeon_economy_land.mixins.json"

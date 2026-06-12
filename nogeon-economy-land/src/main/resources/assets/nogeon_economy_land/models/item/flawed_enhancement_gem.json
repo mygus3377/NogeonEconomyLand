@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "nogeon_economy_land:item/flawed_enhancement_gem"
+  }
+}
