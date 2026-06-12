@@ -210,7 +210,8 @@ public final class SmithingService {
     }
 
     public static int level(ItemStack stack) {
-        return Math.max(0, Math.min(MAX_LEVEL, stack.getOrCreateTag().getInt(LEVEL_TAG)));
+        if (stack.isEmpty()) return 0;
+        return Math.max(0, stack.getOrCreateTag().getInt(LEVEL_TAG));
     }
 
     public static int nextLevel(ItemStack stack) {
@@ -697,7 +698,7 @@ public final class SmithingService {
     }
 
     private static double levelCurve(int level, double early, double mid, double high, double endgame) {
-        int clamped = Math.max(0, Math.min(MAX_LEVEL, level));
+        int clamped = Math.max(0, level);
         double value = Math.min(clamped, 5) * early;
         if (clamped > 5) {
             value += Math.min(clamped - 5, 5) * mid;
