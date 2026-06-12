@@ -1,6 +1,0 @@
-{
-  "parent": "minecraft:item/generated",
-  "textures": {
-    "layer0": "nogeon_economy_land:item/perfect_enhancement_gem"
-  }
-}
